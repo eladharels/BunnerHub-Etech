@@ -4,6 +4,23 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [finding] — Prototype black screen = FEX split-lock race; fixed by FEX_STRICTINPROCESSSPLITLOCKS=1 (2026-10-25)
+**Game:** Prototype (Steam 10150, imported PC game, gameId 95389) on Proton 11 arm64x + FEX_20260913 + DXVK 2.3.1-async, Galaxy S24 Ultra.
+
+#### Symptom
+Black screen, DXVK FPS 0, game process idle. Not fixed by: CPU core limit 4-7, FEX "Compatible" preset (TSO was already on), the repack's patched `prototypeenginef.dll` (one byte: memory pool 0x580000 → 0x640000).
+
+#### Cause
+Wine's own log (GameHub sends Wine stdout/stderr to `/sdcard/wine.log`; visible once Wine Debug Parameters ≠ `-all`) showed `RtlpWaitForCriticalSection section 06B40D49 ... blocked by 0000`. `+relay` limited by registry (`RelayInclude=ntdll.RtlEnterCriticalSection`, `RelayExclude` overridden, since the default list excludes it) showed every call coming from one lock wrapper in `prototypeenginef.dll` (ret `1061d82b`), on a critical section at an **odd address** that worked thousands of times before hanging. Its `LockCount` straddles a 16-byte granule, so the x86 `lock` op is a split lock; ARM64 can't do it atomically and FEX's default split-lock path isn't strictly atomic → lost update → lock left "held" by nobody.
+
+#### Fix
+Per-game **Environment Variables**: `FEX_STRICTINPROCESSSPLITLOCKS=1`. Prototype reaches the intro at 60 FPS. Candidate for a default in the game's config, or globally for FEX if the cost is small.
+
+#### Also learned
+CI builds are debuggable: `adb shell run-as com.bunnerhub.etech` reads `/data/user/0/com.bunnerhub.etech/` (prefixes, `files/pcLaunchLog/launchLog<gameId>.txt`, `/proc/<pid>/fd`).
+
+---
+
 ### [feat] — Wine/FEX log capture to /sdcard/BunnerHub-Etech/logs (2026-10-25)
 **Branch:** `ccr-5c179b34-5ojklf` (BunnerHub Etech).
 
