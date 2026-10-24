@@ -63,7 +63,7 @@ public final class BhVoicePrefs {
 
     private static synchronized void save(Context ctx, Properties p) {
         FileOutputStream out = null;
-        try { out = new FileOutputStream(stateFile(ctx)); p.store(out, "BannerHub voice state"); }
+        try { out = new FileOutputStream(stateFile(ctx)); p.store(out, "BunnerHub Etech voice state"); }
         catch (Throwable t) { Log.w(TAG, "voice state save failed", t); }
         finally { if (out != null) try { out.close(); } catch (Throwable ignored) {} }
     }
@@ -94,7 +94,7 @@ public final class BhVoicePrefs {
     }
 
     private static File publicIdFile() {
-        return new File(new File(Environment.getExternalStorageDirectory(), "BannerHub"), "voice_id.txt");
+        return new File(new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech"), "voice_id.txt");
     }
 
     private static String readPublicId() {
@@ -113,7 +113,7 @@ public final class BhVoicePrefs {
     private static void writePublicId(String id) {
         FileOutputStream out = null;
         try {
-            File dir = new File(Environment.getExternalStorageDirectory(), "BannerHub");
+            File dir = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech");
             if (!dir.exists()) dir.mkdirs();
             out = new FileOutputStream(new File(dir, "voice_id.txt"));
             out.write(id.getBytes("UTF-8"));

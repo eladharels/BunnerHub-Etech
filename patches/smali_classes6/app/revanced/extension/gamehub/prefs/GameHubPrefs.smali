@@ -1483,7 +1483,7 @@
     goto :api_goto_toast
 
     :api_cond_bannerhub
-    const-string p0, "Switched to BannerHub API \u2014 restart to refresh components"
+    const-string p0, "Switched to BunnerHub Etech API \u2014 restart to refresh components"
 
     goto :api_goto_toast
 
@@ -1621,7 +1621,7 @@
     const-string v3, "Switched to EmuReady API \u2014 restart to refresh components"
     goto :api_src_toast
     :api_src_bannerhub
-    const-string v3, "Switched to BannerHub API \u2014 restart to refresh components"
+    const-string v3, "Switched to BunnerHub Etech API \u2014 restart to refresh components"
     goto :api_src_toast
     :api_src_gamehub
     const-string v3, "Switched to Official API \u2014 restart to refresh components"

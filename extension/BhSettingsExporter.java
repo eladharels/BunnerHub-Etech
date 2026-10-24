@@ -43,8 +43,8 @@ import java.util.Random;
  */
 public class BhSettingsExporter {
     private static final String SP_PREFIX    = "pc_g_setting";
-    private static final String EXPORT_DIR   = "BannerHub/configs";
-    private static final String SOURCES_SP   = "banners_sources";
+    private static final String EXPORT_DIR   = "BunnerHub-Etech/configs";
+    private static final String SOURCES_SP   = "bunnerhub_sources";
     private static final String INJECTOR_CLS =
             "com.xj.landscape.launcher.ui.menu.ComponentInjectorHelper";
 
@@ -208,9 +208,9 @@ public class BhSettingsExporter {
      * Build components array from the game's own settings SP.
      *
      * Reads the known component keys from pc_g_setting{gameId} to find exactly
-     * which components are active for this game, then cross-references banners_sources
+     * which components are active for this game, then cross-references bunnerhub_sources
      * to get the download URL — only included if it's a BannerHub-injected component.
-     * Stock GameHub components (no URL in banners_sources) are intentionally excluded
+     * Stock GameHub components (no URL in bunnerhub_sources) are intentionally excluded
      * since they need no download; their selection is already captured in the settings block.
      */
     private static JSONArray buildComponentsArray(Context ctx, String gameId) throws Exception {
@@ -238,7 +238,7 @@ public class BhSettingsExporter {
                 String name     = obj.optString("name", "");
                 if (name.isEmpty()) continue;
 
-                // Only include if this is a BannerHub-injected component (has a URL in banners_sources)
+                // Only include if this is a BannerHub-injected component (has a URL in bunnerhub_sources)
                 String url  = sourcesSp.getString("url_for:" + name, "");
                 if (url.isEmpty()) continue;
                 String type = sourcesSp.getString(name + ":type", "");
@@ -278,7 +278,7 @@ public class BhSettingsExporter {
             }
             File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
             if (files == null || files.length == 0) {
-                Toast.makeText(ctx, "No .json configs found in BannerHub/configs/", Toast.LENGTH_SHORT).show();
+                Toast.makeText(ctx, "No .json configs found in BunnerHub-Etech/configs/", Toast.LENGTH_SHORT).show();
                 return;
             }
             String[] names = new String[files.length];
@@ -499,7 +499,7 @@ public class BhSettingsExporter {
         }
     }
 
-    /** Returns list of {name, url, type} entries not present in banners_sources SP. */
+    /** Returns list of {name, url, type} entries not present in bunnerhub_sources SP. */
     private static List<String[]> findMissingComponents(Context ctx, JSONArray components) throws Exception {
         SharedPreferences sp = ctx.getSharedPreferences(SOURCES_SP, Context.MODE_PRIVATE);
         List<String[]> missing = new ArrayList<>();
@@ -583,7 +583,7 @@ public class BhSettingsExporter {
     }
 
     /**
-     * Injects a component and registers it in banners_sources.
+     * Injects a component and registers it in bunnerhub_sources.
      *
      * For GPU components, detects the actual name registered in EmuComponents
      * (the versionName from profile.json inside the .tzst) by comparing the
@@ -616,7 +616,7 @@ public class BhSettingsExporter {
             }
 
             SharedPreferences.Editor ed = ctx.getSharedPreferences(SOURCES_SP, Context.MODE_PRIVATE).edit();
-            ed.putString(actualName, "BannerHub");
+            ed.putString(actualName, "BunnerHub Etech");
             ed.putString("dl:" + url, "1");
             if (!type.isEmpty()) ed.putString(actualName + ":type", type);
             ed.putString("url_for:" + actualName, url);
@@ -650,7 +650,7 @@ public class BhSettingsExporter {
     /**
      * Recovers the upload token from a locally saved config file on external storage.
      * Used when the SP record is missing (app reinstall / clear data) but the
-     * JSON file still exists in /sdcard/BannerHub/configs/.
+     * JSON file still exists in /sdcard/BunnerHub-Etech/configs/.
      */
     public static String recoverTokenFromFile(Context ctx, String filename) {
         try {
@@ -707,7 +707,7 @@ public class BhSettingsExporter {
     public static void showFrontendExportDialog(Context ctx, String gameId, String gameName) {
         String[] frontends = {"Beacon", "ES-DE"};
         String basePath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                .getAbsolutePath() + "/bannerhub/frontend/";
+                .getAbsolutePath() + "/bunnerhub-etech/frontend/";
 
         int px16 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16, ctx.getResources().getDisplayMetrics());
         int px8  = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,  8, ctx.getResources().getDisplayMetrics());
@@ -742,7 +742,7 @@ public class BhSettingsExporter {
         try {
             File dir = new File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    "bannerhub/frontend/Beacon");
+                    "bunnerhub-etech/frontend/Beacon");
             dir.mkdirs();
             String safeName = gameName.replaceAll("[\\\\/:*?\"<>|]", "_");
             File out = new File(dir, safeName + ".iso");
@@ -761,7 +761,7 @@ public class BhSettingsExporter {
         try {
             File dir = new File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    "bannerhub/frontend/ES-DE");
+                    "bunnerhub-etech/frontend/ES-DE");
             dir.mkdirs();
             String safeName = gameName.replaceAll("[\\\\/:*?\"<>|]", "_");
             File out = new File(dir, safeName + ".steam");

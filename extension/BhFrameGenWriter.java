@@ -150,7 +150,7 @@ public class BhFrameGenWriter {
     }
 
     /** Bundled copy of the firmware 1.3.7–1.4.2 libGameScopeVK.so (md5 9447d8df…). */
-    static final String BUNDLED_VK_ASSET = "bannerhub/libGameScopeVK.so";
+    static final String BUNDLED_VK_ASSET = "bunnerhub-etech/libGameScopeVK.so";
 
     /** Firmware 1.4.8+ deletes usr/lib/libGameScopeVK.so but still ships the steamuser
      *  Vulkan ICD JSON pointing at it, so every game starts with no Vulkan driver (and

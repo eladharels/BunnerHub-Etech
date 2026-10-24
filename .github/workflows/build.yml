@@ -873,32 +873,32 @@ jobs:
       matrix:
         include:
           - variant: Normal
-            package: banner.hub
-            label: "BannerHub"
+            package: bunnerhub.etech
+            label: "BunnerHub Etech"
           - variant: Normal(GHL)
             package: gamehub.lite
-            label: "BannerHub"
+            label: "BunnerHub Etech"
           - variant: PuBG
             package: com.tencent.ig
-            label: "BannerHub PuBG"
+            label: "BunnerHub Etech PuBG"
           - variant: AnTuTu
             package: com.antutu.ABenchMark
-            label: "BannerHub AnTuTu"
+            label: "BunnerHub Etech AnTuTu"
           - variant: alt-AnTuTu
             package: com.antutu.benchmark.full
-            label: "BannerHub AnTuTu"
+            label: "BunnerHub Etech AnTuTu"
           - variant: PuBG-CrossFire
             package: com.tencent.tmgp.cf
-            label: "BannerHub PuBG CrossFire"
+            label: "BunnerHub Etech PuBG CrossFire"
           - variant: Ludashi
             package: com.ludashi.aibench
-            label: "BannerHub Ludashi"
+            label: "BunnerHub Etech Ludashi"
           - variant: Genshin
             package: com.miHoYo.GenshinImpact
-            label: "BannerHub Genshin"
+            label: "BunnerHub Etech Genshin"
           - variant: Original
             package: com.xiaoji.egggame
-            label: "BannerHub Original"
+            label: "BunnerHub Etech Original"
 
     steps:
       - name: Checkout
@@ -933,8 +933,8 @@ jobs:
         run: |
           # Firmware 1.4.8+ deletes usr/lib/libGameScopeVK.so; BhFrameGenWriter restores it
           # from this asset before each launch (see extension/BhFrameGenWriter.java).
-          mkdir -p apktool_out/assets/bannerhub
-          cp bundled/libGameScopeVK.so apktool_out/assets/bannerhub/libGameScopeVK.so
+          mkdir -p apktool_out/assets/bunnerhub-etech
+          cp bundled/libGameScopeVK.so apktool_out/assets/bunnerhub-etech/libGameScopeVK.so
 
       - name: Rebuild APK
         run: |
@@ -974,7 +974,7 @@ jobs:
         run: |
           # Sanitize ref name so branches like fix/foo don't put / into the file path
           SAFE_REF="${GITHUB_REF_NAME//\//-}"
-          APK_NAME="BannerHub-${SAFE_REF}-${{ matrix.variant }}.apk"
+          APK_NAME="BunnerHub-Etech-${SAFE_REF}-${{ matrix.variant }}.apk"
           BUILD_TOOLS=$(ls ${ANDROID_SDK_ROOT}/build-tools | tail -1)
           ${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner sign \
             --key testkey.pk8 \
@@ -1018,13 +1018,13 @@ jobs:
       - name: Download all APK artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: BannerHub-*.apk
+          pattern: BunnerHub-Etech-*.apk
           merge-multiple: true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
-          name: Bannerhub ${{ steps.tag.outputs.name }}
+          name: BunnerHub Etech ${{ steps.tag.outputs.name }}
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
-          files: BannerHub-*.apk
+          files: BunnerHub-Etech-*.apk

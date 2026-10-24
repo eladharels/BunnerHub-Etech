@@ -33,7 +33,7 @@
     # ── Title TextView ────────────────────────────────────────
     new-instance v1, Landroid/widget/TextView;
     invoke-direct {v1, p0}, Landroid/widget/TextView;-><init>(Landroid/content/Context;)V
-    const-string v3, "Banners Component Manager"
+    const-string v3, "BunnerHub Etech Component Manager"
     invoke-virtual {v1, v3}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V
     # text size 18sp
     const/high16 v3, 0x41900000
@@ -356,7 +356,7 @@
     invoke-static {v2}, Landroid/os/Environment;->getExternalStoragePublicDirectory(Ljava/lang/String;)Ljava/io/File;
     move-result-object v2
     new-instance v3, Ljava/io/File;
-    const-string v4, "BannerHub"
+    const-string v4, "BunnerHub-Etech"
     invoke-direct {v3, v2, v4}, Ljava/io/File;-><init>(Ljava/io/File;Ljava/lang/String;)V
     new-instance v4, Ljava/io/File;
     invoke-direct {v4, v3, v1}, Ljava/io/File;-><init>(Ljava/io/File;Ljava/lang/String;)V
@@ -367,7 +367,7 @@
     .catch Ljava/lang/Exception; {:try_start .. :try_end} :catch_backup
     new-instance v3, Ljava/lang/StringBuilder;
     invoke-direct {v3}, Ljava/lang/StringBuilder;-><init>()V
-    const-string v4, "Backed up to Downloads/BannerHub/"
+    const-string v4, "Backed up to Downloads/BunnerHub-Etech/"
     invoke-virtual {v3, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
     invoke-virtual {v3, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
     invoke-virtual {v3}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;

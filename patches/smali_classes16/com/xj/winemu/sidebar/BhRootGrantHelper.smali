@@ -52,7 +52,7 @@
 
     invoke-virtual {v2, v3}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;
 
-    const-string v3, "Root access is currently GRANTED for BannerHub performance controls.\n\nThis allows the in-game Performance sidebar to:\n  \u2022 Enable Sustained Performance Mode\n  \u2022 Lock Adreno GPU clocks to maximum\n\nTap 'Revoke Access' to withdraw this permission and grey out the performance toggles, or 'Keep' to leave it active."
+    const-string v3, "Root access is currently GRANTED for BunnerHub Etech performance controls.\n\nThis allows the in-game Performance sidebar to:\n  \u2022 Enable Sustained Performance Mode\n  \u2022 Lock Adreno GPU clocks to maximum\n\nTap 'Revoke Access' to withdraw this permission and grey out the performance toggles, or 'Keep' to leave it active."
 
     invoke-virtual {v2, v3}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;
 
@@ -81,7 +81,7 @@
 
     invoke-virtual {v2, v3}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;
 
-    const-string v3, "BannerHub can use root (superuser) access to enable advanced performance controls in the in-game Performance sidebar.\n\nOnce granted, you will be able to:\n  \u2022 Sustained Performance Mode \u2014 locks CPU/GPU clocks at a stable level to reduce thermal throttling during long gaming sessions.\n  \u2022 Max Adreno GPU Clocks \u2014 forces the Adreno GPU minimum frequency to its maximum value for peak frame rates.\n\n\u26a0 IMPORTANT WARNINGS:\n\n1. Your root manager (Magisk, KernelSU, etc.) will show a separate permission prompt \u2014 you must tap GRANT there as well.\n\n2. Granting root exposes your device at the superuser level. Only proceed if you trust this application.\n\n3. Max Adreno Clocks requires a Qualcomm Adreno GPU and the kgsl-3d0 sysfs node. On other devices it will silently have no effect.\n\n4. These toggles modify live kernel parameters. Effects are reset on reboot.\n\n5. Sustained Performance Mode increases battery consumption and device temperature.\n\nTap 'Grant Access' to proceed and trigger your root manager's prompt."
+    const-string v3, "BunnerHub Etech can use root (superuser) access to enable advanced performance controls in the in-game Performance sidebar.\n\nOnce granted, you will be able to:\n  \u2022 Sustained Performance Mode \u2014 locks CPU/GPU clocks at a stable level to reduce thermal throttling during long gaming sessions.\n  \u2022 Max Adreno GPU Clocks \u2014 forces the Adreno GPU minimum frequency to its maximum value for peak frame rates.\n\n\u26a0 IMPORTANT WARNINGS:\n\n1. Your root manager (Magisk, KernelSU, etc.) will show a separate permission prompt \u2014 you must tap GRANT there as well.\n\n2. Granting root exposes your device at the superuser level. Only proceed if you trust this application.\n\n3. Max Adreno Clocks requires a Qualcomm Adreno GPU and the kgsl-3d0 sysfs node. On other devices it will silently have no effect.\n\n4. These toggles modify live kernel parameters. Effects are reset on reboot.\n\n5. Sustained Performance Mode increases battery consumption and device temperature.\n\nTap 'Grant Access' to proceed and trigger your root manager's prompt."
 
     invoke-virtual {v2, v3}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;
 

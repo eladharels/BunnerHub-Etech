@@ -626,7 +626,7 @@ public class BhDownloadService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "BannerHub Downloads",
+                    CHANNEL_ID, "BunnerHub Etech Downloads",
                     NotificationManager.IMPORTANCE_LOW);
             ch.setDescription("Game download progress");
             notifMgr.createNotificationChannel(ch);
@@ -671,7 +671,7 @@ public class BhDownloadService extends Service {
 
         return notifBuilder()
                 .setContentTitle(name + " — installed")
-                .setContentText("Tap to open BannerHub")
+                .setContentText("Tap to open BunnerHub Etech")
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setAutoCancel(true)
                 .setContentIntent(launchPI)

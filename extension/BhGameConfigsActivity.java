@@ -77,7 +77,7 @@ public class BhGameConfigsActivity extends Activity {
     private static final String COVERS_SP  = "bh_steam_covers";
     private static final String REPORTS_SP  = "bh_config_reports";
     private static final String UPLOADS_SP  = "bh_config_uploads";
-    private static final String EXPORT_DIR  = "BannerHub/configs";
+    private static final String EXPORT_DIR  = "BunnerHub-Etech/configs";
     private static final String STEAM_SEARCH = "https://store.steampowered.com/api/storesearch/?l=english&cc=us&term=";
     private static final String STEAM_HEADER = "https://cdn.akamai.steamstatic.com/steam/apps/%s/header.jpg";
 
@@ -489,7 +489,7 @@ public class BhGameConfigsActivity extends Activity {
                 if (appId == null) {
                     String query = game.replace("_", " ");
                     HttpURLConnection conn = openGet(STEAM_SEARCH + urlEncode(query));
-                    conn.setRequestProperty("User-Agent", "BannerHub/1.0");
+                    conn.setRequestProperty("User-Agent", "BunnerHub-Etech/1.0");
                     String body = readResponse(conn);
                     JSONObject json = new JSONObject(body);
                     JSONArray items = json.optJSONArray("items");
@@ -501,7 +501,7 @@ public class BhGameConfigsActivity extends Activity {
                 if (appId == null) return;
                 String imgUrl = String.format(STEAM_HEADER, appId);
                 HttpURLConnection imgConn = openGet(imgUrl);
-                imgConn.setRequestProperty("User-Agent", "BannerHub/1.0");
+                imgConn.setRequestProperty("User-Agent", "BunnerHub-Etech/1.0");
                 InputStream in = imgConn.getInputStream();
                 Bitmap bmp = BitmapFactory.decodeStream(in);
                 in.close();
@@ -874,7 +874,7 @@ public class BhGameConfigsActivity extends Activity {
         content.addView(
             actionBtn("Share Config URL", 0xFF1565C0, v -> {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(ClipData.newPlainText("BannerHub Config", rawUrl));
+                cm.setPrimaryClip(ClipData.newPlainText("BunnerHub Etech Config", rawUrl));
                 Toast.makeText(this, "URL copied to clipboard", Toast.LENGTH_SHORT).show();
             }),
             marginParams(0, 0, 0, dp(8)));
@@ -1544,7 +1544,7 @@ public class BhGameConfigsActivity extends Activity {
                 while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
                 in.close(); fos.close();
                 ui.post(() -> Toast.makeText(this,
-                        "Saved to BannerHub/configs/\nUse Import Config in-game to apply.",
+                        "Saved to BunnerHub-Etech/configs/\nUse Import Config in-game to apply.",
                         Toast.LENGTH_LONG).show());
             } catch (Exception e) {
                 ui.post(() -> Toast.makeText(this, "Download failed: " + e.getMessage(), Toast.LENGTH_LONG).show());

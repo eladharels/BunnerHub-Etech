@@ -44,7 +44,7 @@
     invoke-virtual {v2, v1}, Ljava/net/HttpURLConnection;->setConnectTimeout(I)V
     invoke-virtual {v2, v1}, Ljava/net/HttpURLConnection;->setReadTimeout(I)V
     const-string v1, "User-Agent"
-    const-string v3, "BannerHub/1.0"
+    const-string v3, "BunnerHub-Etech/1.0"
     invoke-virtual {v2, v1, v3}, Ljava/net/HttpURLConnection;->setRequestProperty(Ljava/lang/String;Ljava/lang/String;)V
 
     # read response into StringBuilder (v5)

@@ -40,7 +40,7 @@ public final class BhStoragePath {
         }
 
         if (useCustom && sdPath != null && !sdPath.isEmpty()) {
-            return new File(new File(sdPath, "bannerhub"), storeFolder);
+            return new File(new File(sdPath, "bunnerhub-etech"), storeFolder);
         }
         return new File(ctx.getFilesDir(), storeFolder);
     }

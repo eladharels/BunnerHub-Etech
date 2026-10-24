@@ -68,7 +68,7 @@ public final class BhStorageHelper {
                 if (primaryDir != null
                         && abs.equals(primaryDir.getAbsolutePath())) continue;
 
-                File bannerHubDir = new File(rootDir, "bannerhub");
+                File bannerHubDir = new File(rootDir, "bunnerhub-etech");
                 if ((bannerHubDir.exists()
                         && bannerHubDir.isDirectory()
                         && bannerHubDir.canWrite())

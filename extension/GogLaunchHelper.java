@@ -17,7 +17,7 @@ import android.util.Log;
  */
 public final class GogLaunchHelper {
 
-    private static final String TAG = "BannerHub";
+    private static final String TAG = "BunnerHub-Etech";
     private static final String PREF_PENDING = "pending_gog_exe";
 
     private GogLaunchHelper() {}

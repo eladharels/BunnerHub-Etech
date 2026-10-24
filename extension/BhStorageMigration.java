@@ -41,7 +41,7 @@ public final class BhStorageMigration {
 
         new AlertDialog.Builder(activity)
                 .setTitle("Move Steam games back to internal?")
-                .setMessage("Previous BannerHub versions accidentally moved Steam games to SD card alongside GOG, Epic, and Amazon. The 'Save Store Games to External Storage' toggle now only affects GOG/Epic/Amazon as intended.\n\nFor Steam, would you like to switch back to internal storage? Already-installed Steam games will stay where they are — you would need to reinstall them to actually move them.")
+                .setMessage("Previous BunnerHub Etech versions accidentally moved Steam games to SD card alongside GOG, Epic, and Amazon. The 'Save Store Games to External Storage' toggle now only affects GOG/Epic/Amazon as intended.\n\nFor Steam, would you like to switch back to internal storage? Already-installed Steam games will stay where they are — you would need to reinstall them to actually move them.")
                 .setPositiveButton("Switch Steam to internal", (d, w) -> {
                     steamPrefs.edit()
                             .putBoolean("use_custom_storage", false)

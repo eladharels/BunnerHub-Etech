@@ -226,7 +226,7 @@
     const-string v8, "EmuReady"
     const/4 v4, 0x1
     aput-object v8, v6, v4
-    const-string v8, "BannerHub API"
+    const-string v8, "BunnerHub Etech API"
     const/4 v4, 0x2
     aput-object v8, v6, v4
 
@@ -282,7 +282,7 @@
     const-string v4, "When disabled, new GOG, Epic, and Amazon game downloads will save to internal app storage.\n\nGames already installed on the SD card will not be moved — they must be uninstalled from their current location separately."
     goto :goto_storage_msg
     :cond_storage_on_msg
-    const-string v4, "When enabled, GOG, Epic, and Amazon game downloads will be saved to your SD card at:\n\n  {SD card}/bannerhub/{store}/{game}/\n\nThe install location is locked at install time. Toggling this switch later will not affect games that are already installed — they will still uninstall from their original location."
+    const-string v4, "When enabled, GOG, Epic, and Amazon game downloads will be saved to your SD card at:\n\n  {SD card}/bunnerhub-etech/{store}/{game}/\n\nThe install location is locked at install time. Toggling this switch later will not affect games that are already installed — they will still uninstall from their original location."
     :goto_storage_msg
     invoke-virtual {v8, v4}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;
     move-result-object v8

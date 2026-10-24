@@ -424,7 +424,7 @@ public final class BhVoiceOverlay implements BhVoiceController.Host {
             String url = BhVoicePrefs.WORKER + "/voice/room?room=" + enc(roomCode);
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
-            send.putExtra(Intent.EXTRA_TEXT, "Join my BannerHub voice room: " + url);
+            send.putExtra(Intent.EXTRA_TEXT, "Join my BunnerHub Etech voice room: " + url);
             Intent chooser = Intent.createChooser(send, "Share voice room");
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             act.startActivity(chooser);

@@ -358,7 +358,7 @@
     invoke-virtual {v0, v1}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V
 
     # ── Mark already-downloaded assets with ✓ ────────────────────────────────
-    const-string v0, "banners_sources"
+    const-string v0, "bunnerhub_sources"
     const/4 v1, 0x0
     invoke-virtual {p0, v0, v1}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
     move-result-object v5

@@ -100,7 +100,7 @@
     # v2 = mCurrentRepo
     iget-object v2, v0, Lcom/xj/landscape/launcher/ui/menu/ComponentDownloadActivity;->mCurrentRepo:Ljava/lang/String;
     if-nez v2, :repo_ok
-    const-string v2, "BannerHub"
+    const-string v2, "BunnerHub Etech"
     :repo_ok
 
     # v3 = "dl:" + mDownloadUrl
@@ -144,7 +144,7 @@
     :type_done
 
     # Get SP + editor
-    const-string v5, "banners_sources"
+    const-string v5, "bunnerhub_sources"
     const/4 v6, 0x0
     invoke-virtual {v0, v5, v6}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
     move-result-object v5

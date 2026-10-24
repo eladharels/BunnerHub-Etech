@@ -171,10 +171,10 @@
     const/4 v4, 0x1
     invoke-virtual {v2, v3, v0, v4}, Landroid/widget/LinearLayout;->addView(Landroid/view/View;II)V
 
-    # Title "Banners Component Manager" flex
+    # Title "BunnerHub Etech Component Manager" flex
     new-instance v3, Landroid/widget/TextView;
     invoke-direct {v3, p0}, Landroid/widget/TextView;-><init>(Landroid/content/Context;)V
-    const-string v4, "Banners Component Manager"
+    const-string v4, "BunnerHub Etech Component Manager"
     invoke-virtual {v3, v4}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V
     const/high16 v4, 0x41880000    # 17sp
     invoke-virtual {v3, v4}, Landroid/widget/TextView;->setTextSize(F)V
@@ -764,7 +764,7 @@
     invoke-static {v2}, Landroid/os/Environment;->getExternalStoragePublicDirectory(Ljava/lang/String;)Ljava/io/File;
     move-result-object v2
     new-instance v3, Ljava/io/File;
-    const-string v4, "BannerHub"
+    const-string v4, "BunnerHub-Etech"
     invoke-direct {v3, v2, v4}, Ljava/io/File;-><init>(Ljava/io/File;Ljava/lang/String;)V
     new-instance v4, Ljava/io/File;
     invoke-direct {v4, v3, v1}, Ljava/io/File;-><init>(Ljava/io/File;Ljava/lang/String;)V
@@ -775,7 +775,7 @@
     .catch Ljava/lang/Exception; {:try_start .. :try_end} :catch_backup
     new-instance v3, Ljava/lang/StringBuilder;
     invoke-direct {v3}, Ljava/lang/StringBuilder;-><init>()V
-    const-string v4, "Backed up to Downloads/BannerHub/"
+    const-string v4, "Backed up to Downloads/BunnerHub-Etech/"
     invoke-virtual {v3, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
     invoke-virtual {v3, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
     invoke-virtual {v3}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
@@ -966,8 +966,8 @@
     invoke-interface {v2}, Landroid/content/SharedPreferences$Editor;->apply()V
     invoke-static {v0}, Lcom/xj/landscape/launcher/ui/menu/ComponentManagerActivity;->deleteDir(Ljava/io/File;)V
 
-    # Clear banners_sources SP entries for this component
-    const-string v2, "banners_sources"
+    # Clear bunnerhub_sources SP entries for this component
+    const-string v2, "bunnerhub_sources"
     const/4 v3, 0x0
     invoke-virtual {p0, v2, v3}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
     move-result-object v2    # v2 = SP
@@ -1127,7 +1127,7 @@
     const-string v4, "Remove all "
     invoke-virtual {v2, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
     invoke-virtual {v2, v1}, Ljava/lang/StringBuilder;->append(I)Ljava/lang/StringBuilder;
-    const-string v4, " BannerHub component(s)?\nThis cannot be undone."
+    const-string v4, " BunnerHub Etech component(s)?\nThis cannot be undone."
     invoke-virtual {v2, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
     invoke-virtual {v2}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
     move-result-object v3
@@ -1161,7 +1161,7 @@
     iget-object v1, v0, Lcom/xj/winemu/EmuComponents;->a:Ljava/util/HashMap;
     :no_emu
     # Get SP once before the loop
-    const-string v8, "banners_sources"
+    const-string v8, "bunnerhub_sources"
     const/4 v9, 0x0
     invoke-virtual {p0, v8, v9}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
     move-result-object v8    # v8 = SP
@@ -1245,7 +1245,7 @@
     add-int/lit8 v4, v4, 0x1
     goto :remove_loop
     :remove_done
-    const-string v5, "BannerHub components removed"
+    const-string v5, "BunnerHub Etech components removed"
     const/4 v6, 0x0
     invoke-static {p0, v5, v6}, Landroid/widget/Toast;->makeText(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;
     move-result-object v5

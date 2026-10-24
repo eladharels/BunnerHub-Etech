@@ -14,7 +14,7 @@
     invoke-direct {p0}, Landroidx/recyclerview/widget/RecyclerView$Adapter;-><init>()V
     iput-object p1, p0, Lcom/xj/landscape/launcher/ui/menu/BhComponentAdapter;->activity:Lcom/xj/landscape/launcher/ui/menu/ComponentManagerActivity;
     # Cache SharedPreferences for source tracking
-    const-string v0, "banners_sources"
+    const-string v0, "bunnerhub_sources"
     const/4 v1, 0x0
     invoke-virtual {p1, v0, v1}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
     move-result-object v0
