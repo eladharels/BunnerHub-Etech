@@ -861,6 +861,52 @@ jobs:
           print("Offline Launch patch applied.")
           PYEOF
 
+      - name: Apply Wine log capture smali patch
+        run: |
+          python3 << 'PYEOF'
+          import sys
+
+          def patch(path, old, new, label):
+              try:
+                  content = open(path, encoding='utf-8').read()
+              except UnicodeDecodeError:
+                  content = open(path, encoding='latin-1').read()
+              if old not in content:
+                  print(f"ERROR: anchor not found in {path} for: {label}")
+                  sys.exit(1)
+              open(path, 'w', encoding='utf-8').write(content.replace(old, new, 1))
+              print(f"OK: {label}")
+
+          # ProgramLauncher.e() builds argv (v1) and env (v2), then hands both to
+          # ProcessHelper.g(). Pass them through BhWineLog: when the game's
+          # "Wine Debug Parameters" is set, argv is wrapped so Wine/FEX stdout
+          # and stderr go to /sdcard/BunnerHub-Etech/logs/wine-<date>.log.
+          patch(
+              'apktool_out_base/smali_classes7/com/winemu/core/server/environment/plugins/ProgramLauncher.smali',
+              '    invoke-virtual {v0}, Lcom/winemu/core/utils/EnvVars;->toStringArray()[Ljava/lang/String;\n'
+              '\n'
+              '    .line 56\n'
+              '    .line 57\n'
+              '    .line 58\n'
+              '    move-result-object v2\n',
+              '    invoke-virtual {v0}, Lcom/winemu/core/utils/EnvVars;->toStringArray()[Ljava/lang/String;\n'
+              '\n'
+              '    .line 56\n'
+              '    .line 57\n'
+              '    .line 58\n'
+              '    move-result-object v2\n'
+              '\n'
+              '    # BH: Wine/FEX log capture (BhWineLog)\n'
+              '    invoke-static {v2}, Lapp/revanced/extension/gamehub/BhWineLog;->env([Ljava/lang/String;)[Ljava/lang/String;\n'
+              '    move-result-object v2\n'
+              '    invoke-static {v1, v2}, Lapp/revanced/extension/gamehub/BhWineLog;->command([Ljava/lang/String;[Ljava/lang/String;)[Ljava/lang/String;\n'
+              '    move-result-object v1\n',
+              'ProgramLauncher.e(): route argv/env through BhWineLog'
+          )
+
+          print("Wine log capture patch applied.")
+          PYEOF
+
       - name: Upload patched source
         uses: actions/upload-artifact@v4
         with:

@@ -4,6 +4,21 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Wine/FEX log capture to /sdcard/BunnerHub-Etech/logs (2026-10-25)
+**Branch:** `ccr-5c179b34-5ojklf` (BunnerHub Etech).
+
+#### Why
+Debugging Prototype's black screen on launch: GameHub's stdout/stderr callbacks (`ProgramController` → `WinUIBridge` → `LogHttpServer`) only ever delivered "Failed to inject process", never the game's Wine output, and a release build's `/data` is unreadable by adb.
+
+#### What
+`extension/BhWineLog.java` plus a smali hook in `ProgramLauncher.e()` (smali_classes7), right after the env array is built and before `ProcessHelper.g()` execs the launcher. When the game's **Wine Debug Parameters** (Developer Options) is set, so `WINEDEBUG` is no longer the stock `-all`:
+- argv becomes `/system/bin/sh -c 'exec "$@" >>LOG 2>&1' sh <argv>`; the shell execs, so the PID GameHub tracks and kills is still Wine's;
+- `FEX_SILENTLOG=0` and `FEX_OUTPUTLOG=stderr` are added unless already set;
+- each launch writes a header with argv and the sorted env (secret-looking values hidden).
+Launchers within 2 minutes share one `wine-<yyyyMMdd-HHmmss>.log`; the newest 10 logs are kept. Empty field = stock behaviour; any exception returns the arguments unchanged.
+
+---
+
 ### [v3.8.1] — STABLE: games work on firmware 1.4.8+, SD toggle without GHL, Component Manager removals stick (2026-09-11)
 **Tag:** `v3.8.1` (annotated) on `main`. `build.yml` tag push → prepare + 9 variants + release job; body from `release_notes_v3.8.1.md`, marked Latest.
 
