@@ -19,7 +19,9 @@ jobs:
 
       - name: Download original APK
         run: |
-          gh release download base-apk --pattern "*.apk" -D base/ -R ${{ github.repository }}
+          # Use this repo's base-apk release if it has one, otherwise upstream BannerHub's.
+          gh release download base-apk --pattern "*.apk" -D base/ -R ${{ github.repository }} \
+            || gh release download base-apk --pattern "*.apk" -D base/ -R The412Banner/bannerhub
           ls base/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -871,34 +873,12 @@ jobs:
       contents: write
     strategy:
       matrix:
+        # Ludashi only. Upstream also builds Normal, Normal(GHL), PuBG, AnTuTu,
+        # alt-AnTuTu, PuBG-CrossFire, Genshin and Original.
         include:
-          - variant: Normal
-            package: bunnerhub.etech
-            label: "BunnerHub Etech"
-          - variant: Normal(GHL)
-            package: gamehub.lite
-            label: "BunnerHub Etech"
-          - variant: PuBG
-            package: com.tencent.ig
-            label: "BunnerHub Etech PuBG"
-          - variant: AnTuTu
-            package: com.antutu.ABenchMark
-            label: "BunnerHub Etech AnTuTu"
-          - variant: alt-AnTuTu
-            package: com.antutu.benchmark.full
-            label: "BunnerHub Etech AnTuTu"
-          - variant: PuBG-CrossFire
-            package: com.tencent.tmgp.cf
-            label: "BunnerHub Etech PuBG CrossFire"
           - variant: Ludashi
             package: com.ludashi.aibench
             label: "BunnerHub Etech Ludashi"
-          - variant: Genshin
-            package: com.miHoYo.GenshinImpact
-            label: "BunnerHub Etech Genshin"
-          - variant: Original
-            package: com.xiaoji.egggame
-            label: "BunnerHub Etech Original"
 
     steps:
       - name: Checkout
