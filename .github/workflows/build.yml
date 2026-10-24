@@ -3,6 +3,8 @@ name: Build APK
 on:
   workflow_dispatch:
   push:
+    branches:
+      - ccr-5c179b34-5ojklf
     tags:
       - 'v*'
       - '!v*-pre*'
@@ -981,7 +983,7 @@ jobs:
     # manually produce artifacts only, matching the pre-release policy.
     # The push trigger above already filters out v*-pre*/v*-beta*/v*-amazon*,
     # so any push that reaches here is a stable tag.
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
