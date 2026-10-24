@@ -1,4 +1,4 @@
-name: Build APK (Quick — Ludashi only)
+name: Build APK (Quick — Etech only)
 
 on:
   push:
@@ -914,10 +914,10 @@ jobs:
           print("GameDetailActivity auto-launch finish patch applied.")
           PYEOF
 
-      - name: Patch package name and label (Ludashi)
+      - name: Patch package name and label (Etech)
         run: |
-          sed -i "s/gamehub\.lite/com.ludashi.aibench/g" apktool_out/AndroidManifest.xml
-          sed -i 's/android:label="GameHub Revanced"/android:label="BunnerHub Etech Ludashi"/' apktool_out/AndroidManifest.xml
+          sed -i "s/gamehub\.lite/com.bunnerhub.etech/g" apktool_out/AndroidManifest.xml
+          sed -i 's/android:label="GameHub Revanced"/android:label="BunnerHub Etech"/' apktool_out/AndroidManifest.xml
 
       - name: Bundle libGameScopeVK.so fallback
         run: |
@@ -955,7 +955,7 @@ jobs:
           # in the YAML expression itself.
           SAFE_REF="${GITHUB_REF_NAME//\//-}"
           echo "SAFE_REF=$SAFE_REF" >> "$GITHUB_ENV"
-          APK_NAME="BunnerHub-Etech-${SAFE_REF}-Ludashi.apk"
+          APK_NAME="BunnerHub-Etech-${SAFE_REF}-Etech.apk"
           ${ANDROID_SDK_ROOT}/build-tools/$(ls ${ANDROID_SDK_ROOT}/build-tools | tail -1)/apksigner sign \
             --key testkey.pk8 \
             --cert testkey.x509.pem \

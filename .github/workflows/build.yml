@@ -875,12 +875,13 @@ jobs:
       contents: write
     strategy:
       matrix:
-        # Ludashi only. Upstream also builds Normal, Normal(GHL), PuBG, AnTuTu,
-        # alt-AnTuTu, PuBG-CrossFire, Genshin and Original.
+        # One variant with its own package. Upstream instead builds Normal,
+        # Normal(GHL), PuBG, AnTuTu, alt-AnTuTu, PuBG-CrossFire, Ludashi
+        # (com.ludashi.aibench), Genshin and Original.
         include:
-          - variant: Ludashi
-            package: com.ludashi.aibench
-            label: "BunnerHub Etech Ludashi"
+          - variant: Etech
+            package: com.bunnerhub.etech
+            label: "BunnerHub Etech"
 
     steps:
       - name: Checkout
