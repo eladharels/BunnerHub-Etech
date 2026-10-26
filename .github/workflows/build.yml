@@ -2,6 +2,11 @@ name: Build APK
 
 on:
   workflow_dispatch:
+    inputs:
+      debuggable:
+        description: 'Debuggable build (adb run-as works; Android shows a warning on start)'
+        type: boolean
+        default: false
   push:
     branches:
       - ccr-5c179b34-5ojklf
@@ -992,6 +997,14 @@ jobs:
             sed -i "s/gamehub\.lite/$PKG/g" apktool_out/AndroidManifest.xml
           fi
           sed -i "s/android:label=\"GameHub Revanced\"/android:label=\"$LABEL\"/" apktool_out/AndroidManifest.xml
+          # Normal builds are not debuggable (no "debuggable app" warning on every start).
+          # Run the workflow manually with debuggable=true for adb run-as sessions.
+          if [ "${{ inputs.debuggable }}" = "true" ]; then
+            sed -i 's/android:debuggable="false"/android:debuggable="true"/' apktool_out/AndroidManifest.xml
+          else
+            sed -i 's/android:debuggable="true"/android:debuggable="false"/' apktool_out/AndroidManifest.xml
+          fi
+          grep -o 'android:debuggable="[a-z]*"' apktool_out/AndroidManifest.xml
 
       - name: Bundle libGameScopeVK.so fallback
         run: |
@@ -1038,7 +1051,9 @@ jobs:
         run: |
           # Sanitize ref name so branches like fix/foo don't put / into the file path
           SAFE_REF="${GITHUB_REF_NAME//\//-}"
-          APK_NAME="BunnerHub-Etech-${SAFE_REF}-${{ matrix.variant }}.apk"
+          SUFFIX=""
+          if [ "${{ inputs.debuggable }}" = "true" ]; then SUFFIX="-debug"; fi
+          APK_NAME="BunnerHub-Etech-${SAFE_REF}-${{ matrix.variant }}${SUFFIX}.apk"
           BUILD_TOOLS=$(ls ${ANDROID_SDK_ROOT}/build-tools | tail -1)
           ${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner sign \
             --key testkey.pk8 \

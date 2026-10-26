@@ -24,11 +24,14 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **Status (2026-10-26):** implemented (`BhCrashReporter`, `BhReportsActivity`, see PROGRESS_LOG); builds on CI; not yet tried on the phone.
 
-## 2. Release vs debug builds ☐
+## 2. Release vs debug builds ◐
 
 **Why:** CI builds are debuggable, so Android shows the "debuggable app" warning on every app start and on settings screens. Debuggable builds are also what makes `adb shell run-as` work, which these debugging sessions relied on.
 
 **What:** CI produces two APKs: the normal one, non-debuggable (no warning), and a `-debug` one, debuggable, for adb sessions. Same signing key, so either installs over the other.
+
+**Status (2026-10-26):** implemented as a switch rather than two APKs per push (half the CI time): pushes build non-debuggable APKs; a manual run builds a debuggable `…-Etech-debug.apk`:
+`gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true`. Not yet tried on the phone.
 
 ## 3. Known-fix profiles ☐
 

@@ -4,6 +4,12 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [build] — Non-debuggable by default; manual debuggable builds (2026-10-26)
+Roadmap item 2. `patches/AndroidManifest.xml` keeps upstream's `android:debuggable="true"`, so every CI build made Android show the "debuggable app" warning on each start and on settings screens. The "Patch package name and label" step now sets `android:debuggable="false"` unless the workflow is run by hand with the new `debuggable` input:
+`gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true` → artifact `BunnerHub-Etech-<ref>-Etech-debug.apk`. Debug builds are what make `adb shell run-as com.bunnerhub.etech` work; same signing key, so either installs over the other.
+
+---
+
 ### [feat] — Crash reporter + Crash Reports screen; shared native screen style (2026-10-26)
 **Branch:** `ccr-5c179b34-5ojklf` (BunnerHub Etech). Roadmap item 1 (`docs/ROADMAP.md`).
 
