@@ -59,6 +59,7 @@ Before any stable release is published, all changes are manually debugged and te
   - [Per-Game CPU Core Affinity](#per-game-cpu-core-affinity)
   - [Wine / FEX Log Capture](#wine--fex-log-capture)
   - [Play Time](#play-time)
+  - [Crash Reports](#crash-reports)
   - [PC Game Settings: Offline Mode](#pc-game-settings-offline-mode)
   - [Offline Steam Launch](#offline-steam-launch)
   - [Settings: Advanced Tab](#settings-advanced-tab)
@@ -742,6 +743,18 @@ BunnerHub Etech counts how long you play each PC game on the device: imported ga
 - **☰ menu → Play Time:** every game, most played first, with total time and when you last played it, styled like the app's own settings screens.
 
 Counting starts with the first launch on this version; earlier sessions are not known. The totals live in the app's private storage (`files/bh_playtime/`), so clearing the app's data resets them.
+
+---
+
+### Crash Reports
+
+When a game crashes, hangs on a lock, loses the GPU device, misses a DLL or stops right after starting, BunnerHub Etech saves a report and tells you the next time you're back in the launcher, e.g. "Prototype: Crash — Unhandled page fault at FFFFFFFE".
+
+- Reports go to `/sdcard/BunnerHub-Etech/reports/`: a `.zip` per game report (that session's part of Wine's log `/sdcard/wine.log`, the launch parameters, the game's settings, the Wine/FEX capture log if on, and logcat) with a readable `.txt` summary next to it.
+- Crashes of the app itself are saved as `app-crash-<time>.txt` with the stack trace.
+- **☰ menu → Crash Reports** lists them; open one to read the summary, **Share** it (e.g. to send to someone helping you) or **Delete** it.
+
+Works even when a game is force-closed: the report is made once the game's process is gone.
 
 ---
 

@@ -8263,6 +8263,9 @@
 .method public onResume()V
     .locals 6
 
+    # BunnerHub Etech: finalize the last game session, show crash notices
+    invoke-static {p0}, Lapp/revanced/extension/gamehub/BhCrashReporter;->onLauncherResume(Landroid/app/Activity;)V
+
     .line 1
     .line 2
     sget-object v0, Lcom/xj/landscape/launcher/utils/ApkUpdateUtils;->a:Lcom/xj/landscape/launcher/utils/ApkUpdateUtils;

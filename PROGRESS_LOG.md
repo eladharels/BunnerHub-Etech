@@ -4,6 +4,24 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Crash reporter + Crash Reports screen; shared native screen style (2026-10-26)
+**Branch:** `ccr-5c179b34-5ojklf` (BunnerHub Etech). Roadmap item 1 (`docs/ROADMAP.md`).
+
+#### What
+- `extension/BhCrashReporter.java`:
+  - **Session marker** (`files/bh_reports/session.properties`): `onLaunch()` from `BhWineLog.command` (ProgramLauncher.e() hook, :wine, before any Wine process) records `/sdcard/wine.log`'s size and the start time once per 120 s launch window; `onGameIdentified()` from `BhPlayTime.onGameResume` adds id + name.
+  - **Finalize** in `onLauncherResume()` (new hook at the top of the patched `LandscapeLauncherMainActivity.onResume`, background thread) once no `:wine` process is running (ActivityManager), or in `onLaunch()` for a stale marker. Scans the session's slice of wine.log (last 8 MB) for: Unhandled page fault / exception / stack overflow, VK_ERROR_DEVICE_LOST, DxvkError, RtlpWaitForCriticalSection, err:module:import_dll / LdrInitializeThunk / load_dll. Reports also when the session wrote to wine.log and ended < 20 s after starting.
+  - **Report**: `/sdcard/BunnerHub-Etech/reports/report-<time>-<game>.zip` (summary.txt, wine.log slice, launch-params.txt = `files/pcLaunchLog/launchLog<id>.txt`, game-settings.xml = `shared_prefs/pc_g_setting<id>.xml`, latest BhWineLog capture, `logcat -d -t 3000`) plus the same summary as `.txt` next to it.
+  - **App crashes**: default uncaught-exception handler wrapped in both processes → `app-crash-<time>.txt`.
+  - **Notices** (`files/bh_reports/notice-*.properties`) shown as an AlertDialog on the next launcher resume, with "Open reports".
+- `extension/BhReportsActivity.java`: ☰ → Crash Reports (HomeLeftMenuDialog id 16, `:pswitch_16`); rows from the `.txt` summaries; dialog with Share (copy to external cache, androidx FileProvider `<package>.provider`, whose `file_paths` only expose `externalcache`) and Delete.
+- `extension/BhNativeScreen.java`: the GameHub-settings look (stock background/back icon/MiSans, status row, settings rows, focus outline, B Back) factored out of BhPlayTimeActivity and shared with BhReportsActivity.
+
+#### Not verified on device yet
+Built on CI only; the phone was not reachable.
+
+---
+
 ### [feat] — Per-game Play Time: details-page label + ☰ menu screen (2026-10-26)
 **Branch:** `ccr-5c179b34-5ojklf` (BunnerHub Etech).
 

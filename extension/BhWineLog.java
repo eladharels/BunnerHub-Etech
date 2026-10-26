@@ -69,6 +69,8 @@ public final class BhWineLog {
 
     /** Wraps argv so its stdout and stderr are appended to the session log. */
     public static String[] command(String[] argv, String[] env) {
+        // Mark where this session starts in /sdcard/wine.log, for crash reports.
+        BhCrashReporter.onLaunch();
         try {
             if (!isEnabled(env)) return argv;
             File log = sessionFile();
