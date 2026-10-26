@@ -907,6 +907,41 @@ jobs:
           print("Wine log capture patch applied.")
           PYEOF
 
+      - name: Apply Play Time smali patch
+        run: |
+          python3 << 'PYEOF'
+          import sys
+
+          def patch(path, old, new, label):
+              try:
+                  content = open(path, encoding='utf-8').read()
+              except UnicodeDecodeError:
+                  content = open(path, encoding='latin-1').read()
+              if old not in content:
+                  print(f"ERROR: anchor not found in {path} for: {label}")
+                  sys.exit(1)
+              open(path, 'w', encoding='utf-8').write(content.replace(old, new, 1))
+              print(f"OK: {label}")
+
+          # GameDetailActivity.T3 is the observer that receives the game's
+          # GameDetailEntity (p1, may be null). Hand both to BhPlayTime at the
+          # top, before p1 is reused, so it can add the play time label.
+          # Recording happens in the patched WineActivity.onResume/onPause.
+          patch(
+              'apktool_out_base/smali_classes8/com/xj/landscape/launcher/ui/gamedetail/GameDetailActivity.smali',
+              '.method public static final T3(Lcom/xj/landscape/launcher/ui/gamedetail/GameDetailActivity;Lcom/xj/common/service/bean/GameDetailEntity;)Lkotlin/Unit;\n'
+              '    .locals 11\n',
+              '.method public static final T3(Lcom/xj/landscape/launcher/ui/gamedetail/GameDetailActivity;Lcom/xj/common/service/bean/GameDetailEntity;)Lkotlin/Unit;\n'
+              '    .locals 11\n'
+              '\n'
+              '    # BH: show play time on the details page (BhPlayTime)\n'
+              '    invoke-static {p0, p1}, Lapp/revanced/extension/gamehub/BhPlayTime;->onDetail(Landroid/app/Activity;Ljava/lang/Object;)V\n',
+              'GameDetailActivity.T3(): show BhPlayTime label'
+          )
+
+          print("Play Time patch applied.")
+          PYEOF
+
       - name: Upload patched source
         uses: actions/upload-artifact@v4
         with:

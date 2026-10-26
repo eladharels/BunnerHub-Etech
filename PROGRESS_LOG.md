@@ -4,6 +4,17 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Per-game Play Time: details-page label + ☰ menu screen (2026-10-26)
+**Branch:** `ccr-5c179b34-5ojklf` (BunnerHub Etech).
+
+#### What
+- **Recording** (`extension/BhPlayTime.java`, :wine process): patched `WineActivity.onResume` / `onPause` (patches/smali_classes15) call `BhPlayTime.onGameResume` / `onGamePause`. The game comes from WineActivity's `WineActivityData` field (`a` = gameId, `h` = gameName, `e` = isLaunchDesktop, skipped). Time counts while WineActivity is resumed; flushed every 30 s on a single IO thread, and the elapsed time is captured synchronously in onPause so a quick resume can't lose it.
+- **Storage:** one properties file per game in `files/bh_playtime/` (`id`, `name`, `total_ms`, `last_played`), written via temp file + rename; read by the launcher process.
+- **Details page:** build.yml step "Apply Play Time smali patch" calls `BhPlayTime.onDetail(activity, entity)` at the top of `GameDetailActivity.T3` (the GameDetailEntity observer); the record is looked up by `getId()` (> 0) or `getLocalGameId()`, which match WineActivityData's gameId. Label is a TextView added to `android.R.id.content`, top-right.
+- **Menu:** `HomeLeftMenuDialog` item id 15 "Play Time" (`u1()` list + `:pswitch_15` in `o1()`'s packed-switch) opens `extension/BhPlayTimeActivity.java` (declared in patches/AndroidManifest.xml).
+
+---
+
 ### [finding] — Prototype black screen = FEX split-lock race; fixed by FEX_STRICTINPROCESSSPLITLOCKS=1 (2026-10-25)
 **Game:** Prototype (Steam 10150, imported PC game, gameId 95389) on Proton 11 arm64x + FEX_20260913 + DXVK 2.3.1-async, Galaxy S24 Ultra.
 

@@ -8625,6 +8625,9 @@
 .method public onPause()V
     .locals 0
 
+    # BunnerHub Etech: stop counting play time and save it
+    invoke-static {p0}, Lapp/revanced/extension/gamehub/BhPlayTime;->onGamePause(Landroid/app/Activity;)V
+
     .line 1
     .line 2
     .line 3
@@ -8683,6 +8686,9 @@
 
     # BannerHub: re-apply persisted Frame Generation settings on every resume
     invoke-static {p0}, Lcom/xj/winemu/sidebar/BhFrameGenWriter;->applyFromPrefs(Landroid/content/Context;)V
+
+    # BunnerHub Etech: start counting play time
+    invoke-static {p0}, Lapp/revanced/extension/gamehub/BhPlayTime;->onGameResume(Landroid/app/Activity;)V
 
     .line 4
     .line 5

@@ -58,6 +58,7 @@ Before any stable release is published, all changes are manually debugged and te
   - [Per-Game Config Export / Import](#per-game-config-export--import)
   - [Per-Game CPU Core Affinity](#per-game-cpu-core-affinity)
   - [Wine / FEX Log Capture](#wine--fex-log-capture)
+  - [Play Time](#play-time)
   - [PC Game Settings: Offline Mode](#pc-game-settings-offline-mode)
   - [Offline Steam Launch](#offline-steam-launch)
   - [Settings: Advanced Tab](#settings-advanced-tab)
@@ -730,6 +731,17 @@ PC game settings → **Core Count** is replaced with a multi-select dialog to ch
 ### Wine / FEX Log Capture
 
 For debugging a game that won't launch: in **PC game settings → Developer Options**, enter a **Wine Debug Parameters** value (e.g. `err+all,fixme+all,+seh` or `+loaddll`). While it is set, everything Wine and FEX print is saved to `/sdcard/BunnerHub-Etech/logs/wine-<date>-<time>.log`: one file per game session, starting with the command and environment of each launched program (secret-looking values hidden). FEX logging is switched on for that session. The newest 10 logs are kept. Clear the field to go back to normal.
+
+---
+
+### Play Time
+
+BunnerHub Etech counts how long you play each PC game on the device: imported games and GOG, Epic, Amazon and Steam games alike. Time counts only while the game is on screen (not while the app is in the background or the screen is off) and is saved every 30 seconds, so a crash costs at most half a minute.
+
+- **Game details page:** a "Played 12 h 34 m · Last played today" label at the top right.
+- **☰ menu → Play Time:** every game, most played first, with total time, a bar relative to your most played game, and when you last played it.
+
+Counting starts with the first launch on this version; earlier sessions are not known. The totals live in the app's private storage (`files/bh_playtime/`), so clearing the app's data resets them.
 
 ---
 
