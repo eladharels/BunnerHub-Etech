@@ -158,6 +158,7 @@ public final class BhPlayTime {
             e.lastPlayed = System.currentTimeMillis();
             write(ctx, e);
             recordSession(ctx, id, e.lastPlayed - elapsed, e.lastPlayed, elapsed);
+            BhCrashReporter.onAlive(ctx);
         } catch (Throwable t) {
             Log.w(TAG, "flush failed for " + id, t);
         }

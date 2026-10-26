@@ -40,11 +40,12 @@ import java.util.zip.ZipOutputStream;
  * Game sessions. Wine appends every session's stdout/stderr to
  * /sdcard/wine.log (set up by GameHub's Wine runtime, not by the APK).
  * <ol>
- *   <li>{@link #onLaunch()} (from BhWineLog's ProgramLauncher.e() hook, :wine
- *       process, before any Wine process starts) writes a session marker with
- *       the current wine.log size and the start time.</li>
- *   <li>{@link #onGameIdentified} (from BhPlayTime.onGameResume) adds the game
- *       id and name.</li>
+ *   <li>The :wine process keeps a session marker keyed by its pid.
+ *       {@link #onGameIdentified} (BhPlayTime.onGameResume; the game screen
+ *       shows first) records the game id and name; {@link #onLaunch()}
+ *       (BhWineLog's ProgramLauncher.e() hook, before any Wine process
+ *       starts) records the current wine.log size; {@link #onAlive} (every
+ *       play-time save) records when the game was last on screen.</li>
  *   <li>{@link #onLauncherResume} (LandscapeLauncherMainActivity.onResume,
  *       main process) finalizes the marker once the :wine process is gone:
  *       it scans the session's part of wine.log for decisive lines and, if it
@@ -64,7 +65,6 @@ public final class BhCrashReporter {
     static final String REPORT_DIR = "BunnerHub-Etech/reports";
     private static final String STATE_DIR = "bh_reports";
     private static final String MARKER = "session.properties";
-    private static final long LAUNCH_WINDOW_MS = 120_000;
     private static final long QUICK_EXIT_MS = 20_000;
     private static final int MAX_LOG_BYTES = 8 * 1024 * 1024;
     private static final int MAX_MATCHES = 12;
@@ -88,39 +88,61 @@ public final class BhCrashReporter {
 
     // ── Session tracking ─────────────────────────────────────────────────────
 
+    /**
+     * The open session's marker, keyed by the :wine process id. The game
+     * screen (onGameIdentified) shows before the Wine launchers start
+     * (onLaunch), so whichever comes first creates it. A marker from another
+     * process is a finished session: finalize it first.
+     */
+    private static Properties openMarker(Context ctx) {
+        String pid = Integer.toString(android.os.Process.myPid());
+        Properties m = readMarker(ctx);
+        if (m != null && pid.equals(m.getProperty("pid"))) return m;
+        if (m != null) finalizeSession(ctx, m);
+        Properties fresh = new Properties();
+        fresh.setProperty("pid", pid);
+        fresh.setProperty("started", Long.toString(System.currentTimeMillis()));
+        return fresh;
+    }
+
     /** :wine process, before each Wine launcher starts. */
     public static synchronized void onLaunch() {
         try {
             Context ctx = currentApp();
             if (ctx == null) return;
             installCrashHandler(ctx);
-            Properties m = readMarker(ctx);
-            long now = System.currentTimeMillis();
-            if (m != null) {
-                long started = parseLong(m.getProperty("started"));
-                if (now - started < LAUNCH_WINDOW_MS) return; // same session, later launcher
-                finalizeSession(ctx, m); // an older session nobody finalized
-            }
-            Properties fresh = new Properties();
-            fresh.setProperty("started", Long.toString(now));
-            fresh.setProperty("offset", Long.toString(wineLog().length()));
-            writeMarker(ctx, fresh);
+            Properties m = openMarker(ctx);
+            if (m.getProperty("offset") != null) return; // a later launcher of the same session
+            m.setProperty("offset", Long.toString(wineLog().length()));
+            writeMarker(ctx, m);
         } catch (Throwable t) {
             Log.w(TAG, "onLaunch failed", t);
         }
     }
 
-    /** :wine process, when the game screen first shows. */
+    /** :wine process, when the game screen shows (also after each pause). */
     public static synchronized void onGameIdentified(Context ctx, String id, String name) {
         try {
             installCrashHandler(ctx);
-            Properties m = readMarker(ctx);
-            if (m == null || m.getProperty("id") != null) return;
+            Properties m = openMarker(ctx);
+            if (id.equals(m.getProperty("id"))) return;
             m.setProperty("id", id);
             if (name != null) m.setProperty("name", name);
             writeMarker(ctx, m);
         } catch (Throwable t) {
             Log.w(TAG, "onGameIdentified failed", t);
+        }
+    }
+
+    /** :wine process, from BhPlayTime's flushes: the game was on screen until now. */
+    public static synchronized void onAlive(Context ctx) {
+        try {
+            Properties m = readMarker(ctx);
+            if (m == null || !Integer.toString(android.os.Process.myPid()).equals(m.getProperty("pid"))) return;
+            m.setProperty("last_seen", Long.toString(System.currentTimeMillis()));
+            writeMarker(ctx, m);
+        } catch (Throwable t) {
+            Log.w(TAG, "onAlive failed", t);
         }
     }
 
@@ -167,13 +189,15 @@ public final class BhCrashReporter {
         long offset = parseLong(m.getProperty("offset"));
         long size = log.length();
         if (offset > size) offset = 0; // wine.log was truncated
-        long ended = log.lastModified();
+        // The game's last 30 s play-time save. wine.log's own timestamp is no use:
+        // Wine stops writing to it a few seconds into a healthy session.
+        long ended = parseLong(m.getProperty("last_seen"));
 
-        byte[] slice = readSlice(log, offset, size);
+        // No offset: no Wine launcher ran this session, so none of wine.log is ours.
+        byte[] slice = m.getProperty("offset") == null ? new byte[0] : readSlice(log, offset, size);
         List<String> matches = new ArrayList<>();
         String headline = scan(slice, matches);
-        // Only when this session wrote to wine.log; an untouched file's time is an older session's.
-        boolean quickExit = size > offset && ended >= started && ended - started < QUICK_EXIT_MS;
+        boolean quickExit = ended > 0 && ended - started < QUICK_EXIT_MS;
         if (headline == null && !quickExit) return; // a normal session
 
         String id = m.getProperty("id");
@@ -186,7 +210,7 @@ public final class BhCrashReporter {
         if (id != null) sum.append("Game id: ").append(id).append('\n');
         sum.append("Result: ").append(headline).append('\n');
         sum.append("Started: ").append(stamp(started, "yyyy-MM-dd HH:mm:ss")).append('\n');
-        if (ended > 0) sum.append("Last log write: ").append(stamp(ended, "yyyy-MM-dd HH:mm:ss")).append('\n');
+        if (ended > 0) sum.append("Last on screen: ").append(stamp(ended, "yyyy-MM-dd HH:mm:ss")).append('\n');
         if (id != null) {
             BhPlayTime.Entry pt = BhPlayTime.read(ctx, id);
             if (pt != null) sum.append("Total play time: ").append(BhPlayTime.formatDuration(pt.totalMs)).append('\n');
