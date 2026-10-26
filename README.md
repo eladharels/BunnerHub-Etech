@@ -739,7 +739,7 @@ For debugging a game that won't launch: in **PC game settings → Developer Opti
 BunnerHub Etech counts how long you play each PC game on the device: imported games and GOG, Epic, Amazon and Steam games alike. Time counts only while the game is on screen (not while the app is in the background or the screen is off) and is saved every 30 seconds, so a crash costs at most half a minute.
 
 - **Game details page:** a "Played 12 h 34 m · Last played today" label at the top right.
-- **☰ menu → Play Time:** every game, most played first, with total time, a bar relative to your most played game, and when you last played it.
+- **☰ menu → Play Time:** every game, most played first, with total time and when you last played it, styled like the app's own settings screens.
 
 Counting starts with the first launch on this version; earlier sessions are not known. The totals live in the app's private storage (`files/bh_playtime/`), so clearing the app's data resets them.
 

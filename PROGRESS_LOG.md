@@ -12,6 +12,7 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 - **Storage:** one properties file per game in `files/bh_playtime/` (`id`, `name`, `total_ms`, `last_played`), written via temp file + rename; read by the launcher process.
 - **Details page:** build.yml step "Apply Play Time smali patch" calls `BhPlayTime.onDetail(activity, entity)` at the top of `GameDetailActivity.T3` (the GameDetailEntity observer); the record is looked up by `getId()` (> 0) or `getLocalGameId()`, which match WineActivityData's gameId. Label is a TextView added to `android.R.id.content`, top-right.
 - **Menu:** `HomeLeftMenuDialog` item id 15 "Play Time" (`u1()` list + `:pswitch_15` in `o1()`'s packed-switch) opens `extension/BhPlayTimeActivity.java` (declared in patches/AndroidManifest.xml).
+- **Native look:** the screen inflates `patches/res/layout/bh_activity_play_time.xml` (stock `llanuncher_bg_default` background, `com.xj.common.view.CommonTopBarView` with `app:ctb_left_title`) and one `bh_item_play_time.xml` per game (stock `FocusableConstraintLayout`, settings-row sizes/colors). New ids `0x7f0a0f11`–`0x7f0a0f19` and layouts `0x7f0d040f`–`0x7f0d0410` registered in patches/res/values/public.xml + ids.xml. Resources are looked up by name with a fallback to the resource table's package (the CI package rename only touches the manifest). System bars hidden in code, since native screens get that from `FocusableActivity`.
 
 ---
 

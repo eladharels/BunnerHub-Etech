@@ -3479,4 +3479,13 @@
     <item type="id" name="frame_gen_container" />
     <item type="id" name="switch_frame_gen" />
     <item type="id" name="btn_frame_gen_settings" />
+    <item type="id" name="bh_pt_top_bar" />
+    <item type="id" name="bh_pt_summary" />
+    <item type="id" name="bh_pt_scroll" />
+    <item type="id" name="bh_pt_list" />
+    <item type="id" name="bh_pt_back_hint" />
+    <item type="id" name="bh_pt_back_key" />
+    <item type="id" name="bh_pt_name" />
+    <item type="id" name="bh_pt_last" />
+    <item type="id" name="bh_pt_time" />
 </resources>

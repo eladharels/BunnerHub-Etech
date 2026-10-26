@@ -1,16 +1,15 @@
 package app.revanced.extension.gamehub;
 
 import android.app.Activity;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
-import android.text.TextUtils;
-import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import java.util.List;
@@ -18,45 +17,41 @@ import java.util.List;
 /**
  * BhPlayTimeActivity — "Play Time" screen from the launcher's left menu
  * (HomeLeftMenuDialog item id 15). Lists every game BhPlayTime has recorded,
- * most played first, with total time and last-played day.
+ * most played first.
+ *
+ * The UI is patches/res/layout/bh_activity_play_time.xml and
+ * bh_item_play_time.xml, built from stock GameHub views (launcher
+ * background, CommonTopBarView, FocusableConstraintLayout rows, settings text
+ * styles) so it looks like the native settings screens. Native screens hide
+ * the system bars in their FocusableActivity base; this plain Activity does
+ * the same in {@link #hideSystemBars}.
  */
 public class BhPlayTimeActivity extends Activity {
 
-    private static final int BG      = 0xFF0D0D0D;
-    private static final int SURFACE = 0xFF1A1A1A;
-    private static final int ACCENT  = 0xFF6C63FF;
-    private static final int WHITE   = 0xFFFFFFFF;
-    private static final int GREY    = 0xFFAAAAAA;
-    private static final int DIVIDER = 0xFF2A2A2A;
-    private static final int GOLD    = 0xFFFFD700;
-
-    private TextView subtitle;
-    private LinearLayout list;
+    private ViewGroup list;
+    private TextView summary;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        hideSystemBars();
+        setContentView(res("bh_activity_play_time", "layout"));
 
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(BG);
+        list = findViewById(res("bh_pt_list", "id"));
+        summary = findViewById(res("bh_pt_summary", "id"));
 
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        wrapper.addView(buildHeader());
-
-        View headerDivider = new View(this);
-        headerDivider.setBackgroundColor(0xFF3A3A5C);
-        wrapper.addView(headerDivider, new LinearLayout.LayoutParams(-1, dp(2)));
-
-        ScrollView scroll = new ScrollView(this);
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(0, dp(4), 0, dp(4));
-        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
-        wrapper.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
-
-        root.addView(wrapper, new FrameLayout.LayoutParams(-1, -1));
-        setContentView(root);
+        // Top bar back arrow (stock CommonTopBarView child) and the B hint.
+        View back = findViewById(res("fl_open_nav", "id"));
+        if (back != null) back.setOnClickListener(v -> finish());
+        View backHint = findViewById(res("bh_pt_back_hint", "id"));
+        if (backHint != null) backHint.setOnClickListener(v -> finish());
+        View backKey = findViewById(res("bh_pt_back_key", "id"));
+        if (backKey != null) {
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(0xFFFFFFFF);
+            backKey.setBackground(circle);
+        }
     }
 
     @Override
@@ -65,49 +60,10 @@ public class BhPlayTimeActivity extends Activity {
         refresh();
     }
 
-    private LinearLayout buildHeader() {
-        LinearLayout h = new LinearLayout(this);
-        h.setOrientation(LinearLayout.HORIZONTAL);
-        h.setBackgroundColor(SURFACE);
-        h.setGravity(Gravity.CENTER_VERTICAL);
-        h.setPadding(dp(12), dp(10), dp(12), dp(10));
-
-        GradientDrawable backBg = new GradientDrawable();
-        backBg.setColor(0x00000000);
-        backBg.setCornerRadius(dp(6));
-        Button back = new Button(this);
-        back.setText("←");
-        back.setTextColor(WHITE);
-        back.setBackground(backBg);
-        back.setTextSize(18f);
-        back.setPadding(dp(6), dp(4), dp(10), dp(4));
-        back.setFocusable(true);
-        back.setOnFocusChangeListener((v, f) -> {
-            backBg.setColor(f ? 0xFF2A2A4E : 0x00000000);
-            backBg.setStroke(f ? dp(2) : 0, f ? GOLD : 0x00000000);
-        });
-        back.setOnClickListener(v -> finish());
-        h.addView(back);
-
-        LinearLayout titleCol = new LinearLayout(this);
-        titleCol.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, -2, 1f);
-        titleLp.leftMargin = dp(4);
-
-        TextView title = new TextView(this);
-        title.setText("Play Time");
-        title.setTextColor(WHITE);
-        title.setTextSize(18f);
-        title.setTypeface(null, Typeface.BOLD);
-        titleCol.addView(title);
-
-        subtitle = new TextView(this);
-        subtitle.setTextColor(GREY);
-        subtitle.setTextSize(11f);
-        titleCol.addView(subtitle);
-
-        h.addView(titleCol, titleLp);
-        return h;
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemBars();
     }
 
     private void refresh() {
@@ -116,96 +72,59 @@ public class BhPlayTimeActivity extends Activity {
 
         long total = 0;
         for (BhPlayTime.Entry e : entries) total += e.totalMs;
-        subtitle.setText(entries.isEmpty()
-                ? "Time is counted while a game is on screen"
+        summary.setText(entries.isEmpty()
+                ? "No play time recorded yet. Start a game and it will show up here."
                 : entries.size() + (entries.size() == 1 ? " game" : " games")
                         + "  ·  " + BhPlayTime.formatDuration(total) + " in total");
 
-        if (entries.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText("No play time recorded yet.\nStart a game and it will show up here.");
-            empty.setTextColor(GREY);
-            empty.setTextSize(14f);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(24), dp(48), dp(24), dp(48));
-            list.addView(empty, new LinearLayout.LayoutParams(-1, -2));
-            return;
-        }
-
-        long max = entries.get(0).totalMs;
+        LayoutInflater inflater = LayoutInflater.from(this);
+        int rowLayout = res("bh_item_play_time", "layout");
+        int nameId = res("bh_pt_name", "id");
+        int lastId = res("bh_pt_last", "id");
+        int timeId = res("bh_pt_time", "id");
         for (BhPlayTime.Entry e : entries) {
-            list.addView(buildRow(e, max));
-            View div = new View(this);
-            div.setBackgroundColor(DIVIDER);
-            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, dp(1));
-            dlp.leftMargin = dp(16);
-            dlp.rightMargin = dp(16);
-            list.addView(div, dlp);
+            View row = inflater.inflate(rowLayout, list, false);
+            ((TextView) row.findViewById(nameId)).setText(
+                    e.name != null && !e.name.isEmpty() ? e.name : e.id);
+            ((TextView) row.findViewById(lastId)).setText(
+                    "Last played " + BhPlayTime.formatDay(e.lastPlayed));
+            ((TextView) row.findViewById(timeId)).setText(BhPlayTime.formatDuration(e.totalMs));
+            list.addView(row);
+        }
+        if (list.getChildCount() > 0) list.getChildAt(0).requestFocus();
+    }
+
+    private void hideSystemBars() {
+        getWindow().getAttributes().layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                c.hide(WindowInsets.Type.systemBars());
+                c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
     }
 
-    private View buildRow(BhPlayTime.Entry e, long max) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(dp(16), dp(10), dp(16), dp(10));
-        // Focusable so a controller can scroll through the list.
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x00000000);
-        bg.setCornerRadius(dp(6));
-        row.setBackground(bg);
-        row.setFocusable(true);
-        row.setOnFocusChangeListener((v, f) -> {
-            bg.setColor(f ? 0xFF2A2A4E : 0x00000000);
-            bg.setStroke(f ? dp(2) : 0, f ? GOLD : 0x00000000);
-        });
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView name = new TextView(this);
-        name.setText(e.name != null && !e.name.isEmpty() ? e.name : e.id);
-        name.setTextColor(WHITE);
-        name.setTextSize(15f);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        top.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        TextView time = new TextView(this);
-        time.setText(BhPlayTime.formatDuration(e.totalMs));
-        time.setTextColor(ACCENT);
-        time.setTextSize(15f);
-        time.setTypeface(null, Typeface.BOLD);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
-        tlp.leftMargin = dp(12);
-        top.addView(time, tlp);
-        row.addView(top);
-
-        // Bar relative to the most played game.
-        FrameLayout track = new FrameLayout(this);
-        track.setBackgroundColor(DIVIDER);
-        View fill = new View(this);
-        fill.setBackgroundColor(ACCENT);
-        float share = max > 0 ? (float) e.totalMs / max : 0f;
-        LinearLayout bar = new LinearLayout(this);
-        bar.addView(fill, new LinearLayout.LayoutParams(0, -1, share));
-        bar.addView(new View(this), new LinearLayout.LayoutParams(0, -1, 1f - share));
-        track.addView(bar, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(3));
-        blp.topMargin = dp(6);
-        row.addView(track, blp);
-
-        TextView last = new TextView(this);
-        last.setText("Last played " + BhPlayTime.formatDay(e.lastPlayed));
-        last.setTextColor(GREY);
-        last.setTextSize(11f);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, -2);
-        llp.topMargin = dp(4);
-        row.addView(last, llp);
-        return row;
-    }
-
-    private int dp(int v) {
-        return BhPlayTime.dp(this, v);
+    /**
+     * CI renames the package only in the manifest, so the resource table can
+     * keep the original package name: fall back to the table's own name.
+     */
+    private int res(String name, String type) {
+        int id = getResources().getIdentifier(name, type, getPackageName());
+        if (id == 0) {
+            try {
+                String resPkg = getResources().getResourcePackageName(getApplicationInfo().icon);
+                id = getResources().getIdentifier(name, type, resPkg);
+            } catch (Exception ignored) {
+            }
+        }
+        return id;
     }
 }
