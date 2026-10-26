@@ -16284,15 +16284,6 @@
     <public type="id" name="switch_sustained_perf" id="0x7f0a0f0e" />
     <public type="id" name="switch_max_adreno_clocks" id="0x7f0a0f0f" />
     <public type="id" name="sidebar_taskmanager" id="0x7f0a0f10" />
-    <public type="id" name="bh_pt_top_bar" id="0x7f0a0f11" />
-    <public type="id" name="bh_pt_summary" id="0x7f0a0f12" />
-    <public type="id" name="bh_pt_scroll" id="0x7f0a0f13" />
-    <public type="id" name="bh_pt_list" id="0x7f0a0f14" />
-    <public type="id" name="bh_pt_back_hint" id="0x7f0a0f15" />
-    <public type="id" name="bh_pt_back_key" id="0x7f0a0f16" />
-    <public type="id" name="bh_pt_name" id="0x7f0a0f17" />
-    <public type="id" name="bh_pt_last" id="0x7f0a0f18" />
-    <public type="id" name="bh_pt_time" id="0x7f0a0f19" />
     <public type="integer" name="abc_config_activityDefaultDur" id="0x7f0b0000" />
     <public type="integer" name="abc_config_activityShortDur" id="0x7f0b0001" />
     <public type="integer" name="app_bar_elevation_anim_duration" id="0x7f0b0002" />
@@ -17435,8 +17426,6 @@
     <public type="layout" name="rts_gesture_config_dialog" id="0x7f0d040c" />
     <public type="layout" name="rts_action_picker_dialog" id="0x7f0d040d" />
     <public type="layout" name="rts_action_picker_item" id="0x7f0d040e" />
-    <public type="layout" name="bh_activity_play_time" id="0x7f0d040f" />
-    <public type="layout" name="bh_item_play_time" id="0x7f0d0410" />
     <public type="layout" name="material_clock_period_toggle_land" id="0x7f0d029e" />
     <public type="menu" name="display_host" id="0x7f0f0000" />
     <public type="menu" name="main" id="0x7f0f0001" />
