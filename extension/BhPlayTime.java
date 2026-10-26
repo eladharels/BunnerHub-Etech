@@ -157,6 +157,7 @@ public final class BhPlayTime {
             e.totalMs += elapsed;
             e.lastPlayed = System.currentTimeMillis();
             write(ctx, e);
+            recordSession(ctx, id, e.lastPlayed - elapsed, e.lastPlayed, elapsed);
         } catch (Throwable t) {
             Log.w(TAG, "flush failed for " + id, t);
         }
@@ -233,6 +234,146 @@ public final class BhPlayTime {
             p.store(out, null);
         }
         if (!tmp.renameTo(dst)) throw new IllegalStateException("rename failed for " + dst);
+    }
+
+    // ── Sessions ─────────────────────────────────────────────────────────────
+    //
+    // files/bh_playtime/<id>.sessions, one line per session: "start,end,played"
+    // (wall-clock ms, ms). A segment starting within SESSION_GAP_MS of the last
+    // session's end extends it (pausing to answer a message is the same
+    // session); otherwise it starts a new one. History started with the
+    // build that added it: earlier play time is only in the totals.
+
+    private static final long SESSION_GAP_MS = 5 * 60_000;
+    private static final int MAX_SESSIONS = 200;
+
+    /** One play session: wall-clock start/end and time actually on screen. */
+    public static final class Session {
+        public long start;
+        public long end;
+        public long playedMs;
+    }
+
+    private static File sessionsFile(Context ctx, String id) {
+        return new File(dir(ctx), id.replaceAll("[^A-Za-z0-9._-]", "_") + ".sessions");
+    }
+
+    /** Sessions of one game, oldest first. */
+    public static List<Session> sessions(Context ctx, String id) {
+        List<Session> out = new ArrayList<>();
+        File f = sessionsFile(ctx, id);
+        if (!f.isFile()) return out;
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] p = line.trim().split(",");
+                if (p.length != 3) continue;
+                Session s = new Session();
+                s.start = parseLong(p[0]);
+                s.end = parseLong(p[1]);
+                s.playedMs = parseLong(p[2]);
+                if (s.start > 0 && s.playedMs > 0) out.add(s);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "reading sessions of " + id + " failed", t);
+        }
+        return out;
+    }
+
+    private static void writeSessions(Context ctx, String id, List<Session> list) throws Exception {
+        while (list.size() > MAX_SESSIONS) list.remove(0);
+        File dst = sessionsFile(ctx, id);
+        File tmp = new File(dst.getParentFile(), dst.getName() + ".tmp");
+        try (java.io.PrintWriter w = new java.io.PrintWriter(new FileOutputStream(tmp))) {
+            for (Session s : list) w.println(s.start + "," + s.end + "," + s.playedMs);
+        }
+        if (!tmp.renameTo(dst)) throw new IllegalStateException("rename failed for " + dst);
+    }
+
+    private static void recordSession(Context ctx, String id, long segStart, long segEnd, long played) {
+        try {
+            List<Session> list = sessions(ctx, id);
+            Session last = list.isEmpty() ? null : list.get(list.size() - 1);
+            if (last != null && segStart - last.end <= SESSION_GAP_MS) {
+                last.end = segEnd;
+                last.playedMs += played;
+            } else {
+                Session s = new Session();
+                s.start = segStart;
+                s.end = segEnd;
+                s.playedMs = played;
+                list.add(s);
+            }
+            writeSessions(ctx, id, list);
+        } catch (Throwable t) {
+            Log.w(TAG, "recording session of " + id + " failed", t);
+        }
+    }
+
+    /** Time played in sessions that ended after {@code since}. */
+    public static long playedSince(List<Session> list, long since) {
+        long sum = 0;
+        for (Session s : list) if (s.end >= since) sum += s.playedMs;
+        return sum;
+    }
+
+    // ── Export / import (BhSettingsExporter, local exports only) ─────────────
+
+    /** Play time of one game as JSON, or null if none was recorded. */
+    public static org.json.JSONObject toJson(Context ctx, String id) {
+        try {
+            Entry e = read(ctx, id);
+            if (e == null || e.totalMs <= 0) return null;
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("total_ms", e.totalMs);
+            o.put("last_played", e.lastPlayed);
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (Session s : sessions(ctx, id)) {
+                arr.put(new org.json.JSONArray().put(s.start).put(s.end).put(s.playedMs));
+            }
+            o.put("sessions", arr);
+            return o;
+        } catch (Throwable t) {
+            Log.w(TAG, "toJson failed for " + id, t);
+            return null;
+        }
+    }
+
+    /**
+     * Merges exported play time into a game (possibly under a new id, e.g.
+     * after a reinstall gave local games new ids): keeps the larger total and
+     * the later last-played day, and adds sessions not already present.
+     */
+    public static void mergeJson(Context ctx, String id, String name, org.json.JSONObject o) {
+        try {
+            Entry e = read(ctx, id);
+            if (e == null) {
+                e = new Entry();
+                e.id = id;
+            }
+            if (name != null && !name.isEmpty()) e.name = name;
+            e.totalMs = Math.max(e.totalMs, o.optLong("total_ms"));
+            e.lastPlayed = Math.max(e.lastPlayed, o.optLong("last_played"));
+            write(ctx, e);
+
+            List<Session> list = sessions(ctx, id);
+            java.util.Set<Long> starts = new java.util.HashSet<>();
+            for (Session s : list) starts.add(s.start);
+            org.json.JSONArray arr = o.optJSONArray("sessions");
+            for (int i = 0; arr != null && i < arr.length(); i++) {
+                org.json.JSONArray a = arr.optJSONArray(i);
+                if (a == null || a.length() != 3 || starts.contains(a.optLong(0))) continue;
+                Session s = new Session();
+                s.start = a.optLong(0);
+                s.end = a.optLong(1);
+                s.playedMs = a.optLong(2);
+                list.add(s);
+            }
+            list.sort((a, b) -> Long.compare(a.start, b.start));
+            writeSessions(ctx, id, list);
+        } catch (Throwable t) {
+            Log.w(TAG, "mergeJson failed for " + id, t);
+        }
     }
 
     /** All recorded games, most played first. */

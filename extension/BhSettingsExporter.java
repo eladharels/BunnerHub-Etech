@@ -119,6 +119,12 @@ public class BhSettingsExporter {
             json.put("settings", settings);
             json.put("components", components);
 
+            // Personal play time only goes into local exports, never into community uploads.
+            if (!share) {
+                JSONObject playTime = BhPlayTime.toJson(ctx, gameId);
+                if (playTime != null) json.put("play_time", playTime);
+            }
+
             String safeName     = gameName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
             String manufacturer = Build.MANUFACTURER.replaceAll("[^a-zA-Z0-9_\\-]", "_");
             String deviceName   = Build.MODEL.replaceAll("[^a-zA-Z0-9_\\-]", "_");
@@ -457,8 +463,10 @@ public class BhSettingsExporter {
             }
 
             final String fileName = configFile.getName();
+            final JSONObject playTime = json.optJSONObject("play_time");
             Runnable applySettings = () -> {
                 editor.apply();
+                if (playTime != null) BhPlayTime.mergeJson(ctx, gameId, gameName, playTime);
                 Toast.makeText(ctx, "Config applied from " + fileName, Toast.LENGTH_LONG).show();
             };
 

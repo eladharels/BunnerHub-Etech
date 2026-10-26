@@ -39,7 +39,10 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **What:** a bundled list of fixes matched by game (Steam app id, exe name/hash). When a game matches, game settings show "Known fix available" with one-tap Apply (env vars, startup exe, settings), and a note for things that can't be applied automatically. Entries record where the fix came from (PROGRESS_LOG entry).
 
-## 4. Play Time extras ☐
+## 4. Play Time extras ◐
+
+**Status (2026-10-26):** implemented as below ("this week" became "last 7 days"); builds on CI, not yet tried on the phone.
+
 
 **What:**
 - per-session history (start, length) per game, shown on the Play Time screen

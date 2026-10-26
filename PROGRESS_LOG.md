@@ -4,6 +4,14 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Play Time: sessions, 7/30-day totals, export/import (2026-10-26)
+Roadmap item 4.
+- `BhPlayTime`: every flush also updates `files/bh_playtime/<id>.sessions` (`start,end,played` per line, wall-clock ms; a segment starting ≤ 5 min after the last session's end extends it; newest 200 kept). `playedSince()` sums sessions ending after a time.
+- `BhPlayTimeActivity`: header shows total / last 7 days / last 30 days; rows add session count and 7-day time; tapping a game opens its last 30 sessions.
+- `BhSettingsExporter`: local exports (`share == false`) add a `play_time` block (`total_ms`, `last_played`, `sessions`); community uploads never do. `applyConfig` merges it into the target game (max of totals and last played, union of sessions by start), so it survives a reinstall that gives local games new ids.
+
+---
+
 ### [build] — Non-debuggable by default; manual debuggable builds (2026-10-26)
 Roadmap item 2. `patches/AndroidManifest.xml` keeps upstream's `android:debuggable="true"`, so every CI build made Android show the "debuggable app" warning on each start and on settings screens. The "Patch package name and label" step now sets `android:debuggable="false"` unless the workflow is run by hand with the new `debuggable` input:
 `gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true` → artifact `BunnerHub-Etech-<ref>-Etech-debug.apk`. Debug builds are what make `adb shell run-as com.bunnerhub.etech` work; same signing key, so either installs over the other.
