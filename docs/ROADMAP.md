@@ -4,7 +4,7 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 ---
 
-## 1. Crash reporter ◐
+## 1. Crash reporter ☑
 
 **Why:** debugging Prototype and Sleeping Dogs needed a PC, adb and an hour of digging to find one line in `/sdcard/wine.log`. The Play Time screen crash could not be diagnosed at all without a phone on the cable.
 
@@ -22,16 +22,16 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **Done when:** a forced crash (e.g. Sleeping Dogs LE) produces a report and the dialog without a PC; an exception in a BunnerHub screen leaves a stack trace file.
 
-**Status (2026-10-26):** implemented (`BhCrashReporter`, `BhReportsActivity`, see PROGRESS_LOG); builds on CI; not yet tried on the phone.
+**Status (2026-10-26):** done and device-tested (`f78af58`). Prototype without its split-lock fix → dialog "Prototype™: Hang (lock wait timed out)" with the exact log line; report zip has summary, wine.log slice, launch params, settings, capture log, logcat; Crash Reports list, Share (Android share sheet) work; a healthy session makes no report. The first device test found false "stopped right after starting" reports, fixed in `f78af58`. Not yet tested: an app-crash file (needs an app crash).
 
-## 2. Release vs debug builds ◐
+## 2. Release vs debug builds ☑
 
 **Why:** CI builds are debuggable, so Android shows the "debuggable app" warning on every app start and on settings screens. Debuggable builds are also what makes `adb shell run-as` work, which these debugging sessions relied on.
 
 **What:** CI produces two APKs: the normal one, non-debuggable (no warning), and a `-debug` one, debuggable, for adb sessions. Same signing key, so either installs over the other.
 
 **Status (2026-10-26):** implemented as a switch rather than two APKs per push (half the CI time): pushes build non-debuggable APKs; a manual run builds a debuggable `…-Etech-debug.apk`:
-`gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true`. Not yet tried on the phone.
+`gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true`. Device-tested: the push build has no DEBUGGABLE flag and no warning; the debug build allows `run-as`; both install over each other.
 
 ## 3. Known-fix profiles ☐
 
@@ -39,9 +39,11 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **What:** a bundled list of fixes matched by game (Steam app id, exe name/hash). When a game matches, game settings show "Known fix available" with one-tap Apply (env vars, startup exe, settings), and a note for things that can't be applied automatically. Entries record where the fix came from (PROGRESS_LOG entry).
 
+**Findings (2026-10-26, from the phone):** a game's env vars are the string `pc_ls_environment_variable` in `shared_prefs/pc_g_setting<gameId>.xml`, entries joined by commas (`A=1,B=2`); the stock dialog writes it. The startup exe is *not* in those prefs (it lives in GameHub's game database `ux_db`), so v1 applies env vars and shows the exe change as an instruction.
+
 ## 4. Play Time extras ◐
 
-**Status (2026-10-26):** implemented as below ("this week" became "last 7 days"); builds on CI, not yet tried on the phone.
+**Status (2026-10-26):** sessions and 7/30-day totals device-tested (a 2-minute Prototype session shows as "Mon 26 Oct, 20:29  2 m"). Export/import of play time not yet tried on the phone.
 
 
 **What:**
