@@ -951,6 +951,44 @@ jobs:
           print("Play Time patch applied.")
           PYEOF
 
+      - name: Apply network speed-up patch
+        run: |
+          python3 << 'PYEOF'
+          import sys
+
+          def patch(path, old, new, label):
+              try:
+                  content = open(path, encoding='utf-8').read()
+              except UnicodeDecodeError:
+                  content = open(path, encoding='latin-1').read()
+              if old not in content:
+                  print(f"ERROR: anchor not found in {path} for: {label}")
+                  sys.exit(1)
+              open(path, 'w', encoding='utf-8').write(content.replace(old, new, 1))
+              print(f"OK: {label}")
+
+          # Every drake Net API call passes NetOkHttpInterceptor.intercept()
+          # (v0 = request, p1 = chain). BhNet.chain() refuses GameHub calls
+          # that always 401 with the login bypass and gives the rest of
+          # GameHub's own server calls short timeouts, so a weak network
+          # can't stall the launcher.
+          patch(
+              'apktool_out_base/smali_classes4/com/drake/net/interceptor/NetOkHttpInterceptor.smali',
+              '    invoke-static {v5}, Lapp/revanced/extension/gamehub/prefs/GameHubPrefs;->addCompatibilityHeaders(Ljava/lang/Object;)Ljava/lang/Object;\n',
+              '    # BH: skip dead GameHub calls, short timeouts (BhNet)\n'
+              '    invoke-static {v0, p1}, Lapp/revanced/extension/gamehub/BhNet;->chain(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;\n'
+              '\n'
+              '    move-result-object p1\n'
+              '\n'
+              '    check-cast p1, Lokhttp3/Interceptor$Chain;\n'
+              '\n'
+              '    invoke-static {v5}, Lapp/revanced/extension/gamehub/prefs/GameHubPrefs;->addCompatibilityHeaders(Ljava/lang/Object;)Ljava/lang/Object;\n',
+              'NetOkHttpInterceptor.intercept(): BhNet.chain'
+          )
+
+          print("Network speed-up patch applied.")
+          PYEOF
+
       - name: Upload patched source
         uses: actions/upload-artifact@v4
         with:
