@@ -33,7 +33,10 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 **Status (2026-10-26):** implemented as a switch rather than two APKs per push (half the CI time): pushes build non-debuggable APKs; a manual run builds a debuggable `…-Etech-debug.apk`:
 `gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true`. Device-tested: the push build has no DEBUGGABLE flag and no warning; the debug build allows `run-as`; both install over each other.
 
-## 3. Known-fix profiles ☐
+## 3. Known-fix profiles ◐
+
+**Status (2026-10-27):** v1 implemented (`extension/BhKnownFixes.java`): chip on the details page, dialog, Apply/Remove for env vars, instruction for the Sleeping Dogs exe. Builds on CI; not yet tried on the phone.
+
 
 **Why:** fixes found by debugging get lost: Prototype needs `FEX_STRICTINPROCESSSPLITLOCKS=1`; Sleeping Dogs only runs from the DE executable (the LE one is a modified exe whose anti-tamper check kills it).
 

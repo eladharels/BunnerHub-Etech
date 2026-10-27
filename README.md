@@ -60,6 +60,7 @@ Before any stable release is published, all changes are manually debugged and te
   - [Wine / FEX Log Capture](#wine--fex-log-capture)
   - [Play Time](#play-time)
   - [Crash Reports](#crash-reports)
+  - [Known Fixes](#known-fixes)
   - [PC Game Settings: Offline Mode](#pc-game-settings-offline-mode)
   - [Offline Steam Launch](#offline-steam-launch)
   - [Settings: Advanced Tab](#settings-advanced-tab)
@@ -756,6 +757,22 @@ When a game crashes, hangs on a lock, loses the GPU device, misses a DLL or stop
 - **☰ menu → Crash Reports** lists them; open one to read the summary, **Share** it (e.g. to send to someone helping you) or **Delete** it.
 
 Works even when a game is force-closed: the report is made once the game's process is gone.
+
+---
+
+### Known Fixes
+
+Fixes found while debugging specific games are built in. When one applies, the game's details page shows a **🔧 Known fix** chip under the play time; tap it to read what's wrong and why.
+
+- Fixes that are settings (environment variables) have an **Apply** button, which adds the variable to the game's Environment Variables and keeps any others; the chip then turns green ("Known fix applied"), and **Remove** undoes it.
+- Fixes that aren't settings (e.g. "use another executable") are shown as instructions.
+
+Current list:
+
+| Game | Problem | Fix |
+|---|---|---|
+| Prototype | Black screen at start (FEX split-lock race) | `FEX_STRICTINPROCESSSPLITLOCKS=1` (Apply) |
+| Sleeping Dogs (LE exe) | Crashes at startup (modified exe's copy-protection check) | Set Startup File Path to `DE\sdhdship.exe` (instruction) |
 
 ---
 

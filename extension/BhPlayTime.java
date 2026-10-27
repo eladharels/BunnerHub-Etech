@@ -447,6 +447,7 @@ public final class BhPlayTime {
                     ? "Not played yet"
                     : "Played " + formatDuration(e.totalMs) + "  ·  Last played " + formatDay(e.lastPlayed);
             activity.runOnUiThread(() -> showLabel(activity, text));
+            BhKnownFixes.onDetail(activity, entity);
         } catch (Throwable t) {
             Log.w(TAG, "onDetail failed", t);
         }

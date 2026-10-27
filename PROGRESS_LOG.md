@@ -4,6 +4,14 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Known fixes on the game details page (2026-10-27)
+Roadmap item 3. `extension/BhKnownFixes.java`, called from `BhPlayTime.onDetail` (so the existing `GameDetailActivity.T3` hook; no new smali). Matches a game by `GameDetailEntity.getSteamAppId()`, `getName()` (regex) or `getFilePath()` (exe); shows a chip under the play time label (amber "Known fix: …", green "Known fix applied") that opens a dialog with the explanation and source.
+- Env-var fixes: Apply/Remove edit `pc_ls_environment_variable` in `pc_g_setting<gameId>` (comma-separated `A=1,B=2`, the format GameHub's own dialog writes), keeping other entries and dropping empty-name junk (`=1`).
+- Exe fixes are instructions only (the startup exe lives in `ux_db`, not prefs); the chip hides once the exe path contains the fixed exe.
+- Entries: Prototype (Steam 10150 / name) → `FEX_STRICTINPROCESSSPLITLOCKS=1`; Sleeping Dogs with `HKShip.exe` → use `DE\sdhdship.exe`.
+
+---
+
 ### [feat] — Play Time: sessions, 7/30-day totals, export/import (2026-10-26)
 Roadmap item 4.
 - `BhPlayTime`: every flush also updates `files/bh_playtime/<id>.sessions` (`start,end,played` per line, wall-clock ms; a segment starting ≤ 5 min after the last session's end extends it; newest 200 kept). `playedSince()` sums sessions ending after a time.
