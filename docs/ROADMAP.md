@@ -33,9 +33,9 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 **Status (2026-10-26):** implemented as a switch rather than two APKs per push (half the CI time): pushes build non-debuggable APKs; a manual run builds a debuggable `…-Etech-debug.apk`:
 `gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true`. Device-tested: the push build has no DEBUGGABLE flag and no warning; the debug build allows `run-as`; both install over each other.
 
-## 3. Known-fix profiles ◐
+## 3. Known-fix profiles ☑
 
-**Status (2026-10-27):** v1 implemented (`extension/BhKnownFixes.java`): chip on the details page, dialog, Apply/Remove for env vars, instruction for the Sleeping Dogs exe. Builds on CI; not yet tried on the phone.
+**Status (2026-10-27):** v1 done and device-tested (`extension/BhKnownFixes.java`): Prototype shows "Known fix applied"; Remove → amber "Known fix: Black screen at start", Apply → green again (env var written back); Sleeping Dogs on the DE exe correctly shows no chip. The LE-exe chip is untested (the game no longer points at LE).
 
 
 **Why:** fixes found by debugging get lost: Prototype needs `FEX_STRICTINPROCESSSPLITLOCKS=1`; Sleeping Dogs only runs from the DE executable (the LE one is a modified exe whose anti-tamper check kills it).
@@ -53,6 +53,14 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 - per-session history (start, length) per game, shown on the Play Time screen
 - "this week" and "last 30 days" totals
 - include the totals in Export/Import Config so they survive a reinstall
+
+## 6. In-game trainer ☐
+
+**Why:** replaying finished single-player games for fun: change values live (XP, money, items, health) from the in-game menu, Cheat Engine style.
+
+**Feasibility (2026-10-27, `BhMemProbe`, device-tested):** the app's `:wine` process (SELinux `untrusted_app`, same categories as the game) can read **and write** the game's memory via `/proc/<pid>/mem`: Prototype had 460 MB of writable memory below 4 GB (32-bit game under FEX; guest addresses map 1:1). Read 16 bytes, wrote them back, read-back matched.
+
+**Plan:** a Trainer panel in the in-game sidebar: exact-value scan (4-byte int first; float, 2-byte, 1-byte, double), "next scan" to narrow, set value, freeze (rewrite every ~100 ms), named per-game entries. Single-player only; addresses may move between launches.
 
 ## 5. Housekeeping ☐ (needs Elad's decision)
 
