@@ -54,9 +54,9 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 - "this week" and "last 30 days" totals
 - include the totals in Export/Import Config so they survive a reinstall
 
-## 6. In-game trainer ◐
+## 6. In-game trainer ☑
 
-**Status (2026-10-27):** v1 implemented: `extension/BhTrainer.java` (engine), `extension/BhTrainerPanel.java` (UI), sidebar tab via `patches/smali_classes16/com/xj/winemu/sidebar/BhTrainerFragment.smali` + `BhTrainerClickListener.smali`, `WineActivityDrawerContent` (`U()` branch, click wiring), layout `winemu_activitiy_settings_layout.xml`, icon `sidebar_trainer.xml`. Device-tested in Prototype (2026-10-27): tab opens and finds the game; first scan of 459 MB in ~2 s with the game at 59 FPS (1280 → 443 results); next scan narrows (443 → 442 → 441); "no results" message; a 49-result list shows addresses with live values. Not yet tested: Set value, Save, Freeze (left for Elad to try in a real game).
+**Status (2026-10-27):** v1 implemented: `extension/BhTrainer.java` (engine), `extension/BhTrainerPanel.java` (UI), sidebar tab via `patches/smali_classes16/com/xj/winemu/sidebar/BhTrainerFragment.smali` + `BhTrainerClickListener.smali`, `WineActivityDrawerContent` (`U()` branch, click wiring), layout `winemu_activitiy_settings_layout.xml`, icon `sidebar_trainer.xml`. Device-tested in Prototype (2026-10-27): tab opens and finds the game; first scan of 459 MB in ~2 s with the game at 59 FPS (1280 → 443 results); next scan narrows (443 → 442 → 441); "no results" message; a 49-result list shows addresses with live values. Elad then used it in Prototype to find and change XP: "it worked" (2026-10-27).
 
 **Why:** replaying finished single-player games for fun: change values live (XP, money, items, health) from the in-game menu, Cheat Engine style.
 
