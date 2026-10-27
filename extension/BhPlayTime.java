@@ -96,6 +96,7 @@ public final class BhPlayTime {
             Object name = readField(data, "h");
             curName = name instanceof String ? (String) name : null;
             BhCrashReporter.onGameIdentified(appCtx, curId, curName);
+            BhMemProbe.maybeStart();
             lastMark = SystemClock.elapsedRealtime();
             running = true;
             if (ticker != null) ticker.cancel(false);
