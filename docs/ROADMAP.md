@@ -31,7 +31,7 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 **What:** CI produces two APKs: the normal one, non-debuggable (no warning), and a `-debug` one, debuggable, for adb sessions. Same signing key, so either installs over the other.
 
 **Status (2026-10-26):** implemented as a switch rather than two APKs per push (half the CI time): pushes build non-debuggable APKs; a manual run builds a debuggable `…-Etech-debug.apk`:
-`gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref ccr-5c179b34-5ojklf -f debuggable=true`. Device-tested: the push build has no DEBUGGABLE flag and no warning; the debug build allows `run-as`; both install over each other.
+`gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref main -f debuggable=true`. Device-tested: the push build has no DEBUGGABLE flag and no warning; the debug build allows `run-as`; both install over each other.
 
 ## 3. Known-fix profiles ☑
 
@@ -64,7 +64,10 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **Plan:** a Trainer panel in the in-game sidebar: exact-value scan (4-byte int first; float, 2-byte, 1-byte, double), "next scan" to narrow, set value, freeze (rewrite every ~100 ms), named per-game entries. Single-player only; addresses may move between launches.
 
-## 5. Housekeeping ☐ (needs Elad's decision)
+## 5. Housekeeping ☑
+
+**Status (2026-10-27):** done at Elad's request. The work branch replaced `main` (which only held a one-line "Initial commit"); CI builds on pushes to `main`. Builds are signed with Elad's own release key (RSA 4096, alias `bunnerhub-etech`, cert SHA-256 `D5:F2:A2:7C:…:F4:DA`), stored as repo secrets `SIGNING_KEYSTORE_B64` / `SIGNING_KEYSTORE_PASSWORD` / `SIGNING_KEY_ALIAS`; the keystore itself lives only outside the repo (Elad's PC, to be backed up). Without the secrets (forks) CI falls back to the public test key and names the APK `…-testkey.apk`. Switching keys needed one uninstall.
+
 
 - **Make the work branch `main`.** `main` holds only "Initial commit", so this replaces it.
 - **Own signing key** as a GitHub secret instead of the public test key. Android refuses to update an app signed with a different key: switching means uninstalling once and losing the app's data unless it is backed up first.

@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [build] — `main` is the branch; own release signing key (2026-10-27)
+Roadmap item 5. The former work branch `ccr-5c179b34-5ojklf` now *is* `main` (old `main` was a one-line "Initial commit" with unrelated history, force-replaced on request); `build.yml` builds on pushes to `main`. The Sign step uses repo secrets `SIGNING_KEYSTORE_B64` (base64 PKCS12), `SIGNING_KEYSTORE_PASSWORD` (store and key), `SIGNING_KEY_ALIAS`, decoded to `$RUNNER_TEMP` and removed after signing, and prints the signer's DN/SHA-256. Without them it signs with the public test key and adds `-testkey` to the APK name. Debug builds: `gh workflow run build.yml -R eladharels/BunnerHub-Etech --ref main -f debuggable=true`. The test-key → release-key switch requires one uninstall (Android rejects updates with a different signer).
+
+---
+
 ### [feat] — In-game trainer (sidebar tab) (2026-10-27)
 Roadmap item 6. Feasibility proven first with `BhMemProbe` (trigger file `/sdcard/BunnerHub-Etech/memprobe`): the `:wine` process (`untrusted_app`, same MLS categories as the game) can read and write `/proc/<pid>/mem` of the game's Wine process.
 - `BhTrainer`: game pid = largest `*.exe` process that isn't a Wine program; regions = `rw` mappings 0x10000–4 GB (skipping `/dev/*` except ashmem/zero); first scan reads 1 MB chunks, aligned matches (int32/float/double 4-byte aligned, int16 2, byte 1; float/double "rounded" ±0.5), results as `int[]` (max 4 M); next scan reads 64 KB windows over the sorted results; write via `/proc/<pid>/mem` "rw"; freeze thread rewrites every 100 ms; saved entries per game id in prefs `bh_trainer` (JSON). Results reset when the game pid changes.

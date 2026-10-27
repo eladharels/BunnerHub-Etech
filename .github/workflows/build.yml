@@ -9,7 +9,7 @@ on:
         default: false
   push:
     branches:
-      - ccr-5c179b34-5ojklf
+      - main
     tags:
       - 'v*'
       - '!v*-pre*'
@@ -1048,21 +1048,38 @@ jobs:
 
       - name: Sign
         id: sign
+        env:
+          # Elad's own release key (repo secrets). Without them (forks, PRs) the
+          # public test key is used and the APK name says "-testkey": such a build
+          # cannot update an install signed with the release key.
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
         run: |
           # Sanitize ref name so branches like fix/foo don't put / into the file path
           SAFE_REF="${GITHUB_REF_NAME//\//-}"
           SUFFIX=""
           if [ "${{ inputs.debuggable }}" = "true" ]; then SUFFIX="-debug"; fi
-          APK_NAME="BunnerHub-Etech-${SAFE_REF}-${{ matrix.variant }}${SUFFIX}.apk"
           BUILD_TOOLS=$(ls ${ANDROID_SDK_ROOT}/build-tools | tail -1)
-          ${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner sign \
-            --key testkey.pk8 \
-            --cert testkey.x509.pem \
+          APKSIGNER=${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            KEY_ARGS=(--ks "$RUNNER_TEMP/release.jks" --ks-pass env:SIGNING_KEYSTORE_PASSWORD
+                      --ks-key-alias "$SIGNING_KEY_ALIAS" --key-pass env:SIGNING_KEYSTORE_PASSWORD)
+          else
+            echo "::warning::No release signing secrets: signing with the public test key"
+            SUFFIX="${SUFFIX}-testkey"
+            KEY_ARGS=(--key testkey.pk8 --cert testkey.x509.pem)
+          fi
+          APK_NAME="BunnerHub-Etech-${SAFE_REF}-${{ matrix.variant }}${SUFFIX}.apk"
+          "$APKSIGNER" sign "${KEY_ARGS[@]}" \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
             --out "$APK_NAME" \
             rebuilt-aligned.apk
+          rm -f "$RUNNER_TEMP/release.jks"
+          "$APKSIGNER" verify --print-certs "$APK_NAME" | grep -E "certificate (DN|SHA-256)" | head -2
           echo "Completed: $APK_NAME ($(du -sh "$APK_NAME" | cut -f1))"
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
 
