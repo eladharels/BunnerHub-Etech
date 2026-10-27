@@ -54,7 +54,9 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 - "this week" and "last 30 days" totals
 - include the totals in Export/Import Config so they survive a reinstall
 
-## 6. In-game trainer ☐
+## 6. In-game trainer ◐
+
+**Status (2026-10-27):** v1 implemented: `extension/BhTrainer.java` (engine), `extension/BhTrainerPanel.java` (UI), sidebar tab via `patches/smali_classes16/com/xj/winemu/sidebar/BhTrainerFragment.smali` + `BhTrainerClickListener.smali`, `WineActivityDrawerContent` (`U()` branch, click wiring), layout `winemu_activitiy_settings_layout.xml`, icon `sidebar_trainer.xml`. Not yet tried on the phone.
 
 **Why:** replaying finished single-player games for fun: change values live (XP, money, items, health) from the in-game menu, Cheat Engine style.
 

@@ -4,6 +4,15 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — In-game trainer (sidebar tab) (2026-10-27)
+Roadmap item 6. Feasibility proven first with `BhMemProbe` (trigger file `/sdcard/BunnerHub-Etech/memprobe`): the `:wine` process (`untrusted_app`, same MLS categories as the game) can read and write `/proc/<pid>/mem` of the game's Wine process.
+- `BhTrainer`: game pid = largest `*.exe` process that isn't a Wine program; regions = `rw` mappings 0x10000–4 GB (skipping `/dev/*` except ashmem/zero); first scan reads 1 MB chunks, aligned matches (int32/float/double 4-byte aligned, int16 2, byte 1; float/double "rounded" ±0.5), results as `int[]` (max 4 M); next scan reads 64 KB windows over the sorted results; write via `/proc/<pid>/mem` "rw"; freeze thread rewrites every 100 ms; saved entries per game id in prefs `bh_trainer` (JSON). Results reset when the game pid changes.
+- `BhTrainerPanel`: UI built in code (value field, type button, New/Next search, Reset, results ≤ 50 with live values, Saved values with Set/Freeze/Delete dialogs, live refresh every 1 s while shown).
+- Sidebar: new tab `sidebar_trainer` (id `0x7f0a0f11`, drawable `0x7f080b4f`), `BhTrainerClickListener` → `WineActivityDrawerContent.U("BhTrainerFragment")` (hash `0xa8774df`) → smali `BhTrainerFragment` (androidx Fragment, delegates to the Java panel).
+- `BhPlayTime.currentGameId()/currentGameName()` expose the session's game.
+
+---
+
 ### [feat] — Known fixes on the game details page (2026-10-27)
 Roadmap item 3. `extension/BhKnownFixes.java`, called from `BhPlayTime.onDetail` (so the existing `GameDetailActivity.T3` hook; no new smali). Matches a game by `GameDetailEntity.getSteamAppId()`, `getName()` (regex) or `getFilePath()` (exe); shows a chip under the play time label (amber "Known fix: …", green "Known fix applied") that opens a dialog with the explanation and source.
 - Env-var fixes: Apply/Remove edit `pc_ls_environment_variable` in `pc_g_setting<gameId>` (comma-separated `A=1,B=2`, the format GameHub's own dialog writes), keeping other entries and dropping empty-name junk (`=1`).

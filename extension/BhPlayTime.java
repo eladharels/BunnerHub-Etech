@@ -107,6 +107,16 @@ public final class BhPlayTime {
         }
     }
 
+    /** The game id of the current :wine session, or null. */
+    public static synchronized String currentGameId() {
+        return curId;
+    }
+
+    /** The game name of the current :wine session, or null. */
+    public static synchronized String currentGameName() {
+        return curName;
+    }
+
     public static synchronized void onGamePause(Activity activity) {
         try {
             if (!running) return;

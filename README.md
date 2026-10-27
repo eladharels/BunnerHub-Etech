@@ -61,6 +61,7 @@ Before any stable release is published, all changes are manually debugged and te
   - [Play Time](#play-time)
   - [Crash Reports](#crash-reports)
   - [Known Fixes](#known-fixes)
+  - [In-Game Trainer](#in-game-trainer)
   - [PC Game Settings: Offline Mode](#pc-game-settings-offline-mode)
   - [Offline Steam Launch](#offline-steam-launch)
   - [Settings: Advanced Tab](#settings-advanced-tab)
@@ -773,6 +774,19 @@ Current list:
 |---|---|---|
 | Prototype | Black screen at start (FEX split-lock race) | `FEX_STRICTINPROCESSSPLITLOCKS=1` (Apply) |
 | Sleeping Dogs (LE exe) | Crashes at startup (modified exe's copy-protection check) | Set Startup File Path to `DE\sdhdship.exe` (instruction) |
+
+---
+
+### In-Game Trainer
+
+Change values in a running game, Cheat Engine style: XP, money, ammo, item counts. It's in the in-game sidebar (**☰** at the bottom while playing) as the **⊕ Trainer** tab.
+
+1. Type a value you can see in the game (e.g. your XP, 1250) and tap **New search**.
+2. Change it in the game (earn or spend some), type the new value and tap **Next search**. Repeat until a few results are left.
+3. Tap a result to **Set value** or **Save** it under a name.
+4. Saved values show live; tap one to set it, **Freeze** it (kept at the current value) or delete it. They're remembered per game.
+
+The type button switches between 4 bytes (most counters), Float, 2 bytes, 1 byte and Double. Addresses can change after the game restarts; search again if a saved value stops working. **Single-player games only**: games with online anti-cheat can detect memory changes.
 
 ---
 
