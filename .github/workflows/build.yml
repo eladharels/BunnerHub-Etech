@@ -7,6 +7,10 @@ on:
         description: 'Debuggable build (adb run-as works; Android shows a warning on start)'
         type: boolean
         default: false
+      testkey:
+        description: 'Sign with the public test key (to update an old test-key install, e.g. for a data backup)'
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -1062,7 +1066,7 @@ jobs:
           if [ "${{ inputs.debuggable }}" = "true" ]; then SUFFIX="-debug"; fi
           BUILD_TOOLS=$(ls ${ANDROID_SDK_ROOT}/build-tools | tail -1)
           APKSIGNER=${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner
-          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+          if [ -n "$SIGNING_KEYSTORE_B64" ] && [ "${{ inputs.testkey }}" != "true" ]; then
             echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             KEY_ARGS=(--ks "$RUNNER_TEMP/release.jks" --ks-pass env:SIGNING_KEYSTORE_PASSWORD
                       --ks-key-alias "$SIGNING_KEY_ALIAS" --key-pass env:SIGNING_KEYSTORE_PASSWORD)
