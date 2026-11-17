@@ -70,7 +70,11 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **To test on the device:** does the Status line say the Wine build supports FSR (which Wine builds do)? Does removing `WINE_DISABLE_FULLSCREEN_HACK` break anything (GameHub sets it for every game)? With a lower in-game fullscreen resolution, does "Game renders at" drop and FPS rise? Do the render-size modes work?
 
-**Later options:** our own Vulkan layer (FSR 1 / Snapdragon GSR / CAS at present, works with any Wine), or OptiScaler per game for titles with DLSS/XeSS/FSR 2 inputs.
+**Device test (2026-11-17, S24 Ultra, Firewatch / DXVK):** the FSR tab works (after making the sidebar icon column scrollable), but Status says the game's Wine build has no FSR, so FSR stayed off and no `fsr-*.log` was written. Not yet tried: other Wine/Proton builds offered in the game's settings. Possible small addition: show the Wine folder and files the check looked at, to rule out a false "no".
+
+**Key finding:** the Wine screen is 1280x720 and the display 2340x1080, so GameHub already stretches 720p to the screen with a plain resize. Wine's FSR could only upscale *up to* the Wine screen size, so the real gain is in that final stretch. GameHub's "Super Resolution" is only CAS sharpening (`CASEffect` in its ReShade config), not upscaling.
+
+**Next (on hold until Elad is back, December):** our own Vulkan layer that does FSR 1 / Snapdragon GSR at present time and replaces GameHub's final stretch. It needs no per-game work (spatial, whole frame; HUD/text upscaled too) and works with any Wine for DXVK / VKD3D games, probably OpenGL too (Zink → Vulkan). Work: native C++ (NDK) built in CI, find where GameHub does the final stretch (`libGameScopeVK` DirectRendering present path or the X server renderer), a per-game on/off and quality setting, several device test rounds. OptiScaler per game (DLSS/XeSS/FSR 2 inputs) stays a later option.
 
 ## 5. Housekeeping ☑
 
