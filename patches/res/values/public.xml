@@ -16288,6 +16288,7 @@
     <public type="id" name="sidebar_taskmanager" id="0x7f0a0f10" />
     <public type="id" name="sidebar_trainer" id="0x7f0a0f11" />
     <public type="id" name="sidebar_fsr" id="0x7f0a0f12" />
+    <public type="id" name="sidebar_tab_scroll" id="0x7f0a0f13" />
     <public type="integer" name="abc_config_activityDefaultDur" id="0x7f0b0000" />
     <public type="integer" name="abc_config_activityShortDur" id="0x7f0b0001" />
     <public type="integer" name="app_bar_elevation_anim_duration" id="0x7f0b0002" />
