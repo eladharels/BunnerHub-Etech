@@ -64,6 +64,14 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **Plan:** a Trainer panel in the in-game sidebar: exact-value scan (4-byte int first; float, 2-byte, 1-byte, double), "next scan" to narrow, set value, freeze (rewrite every ~100 ms), named per-game entries. Single-player only; addresses may move between launches.
 
+## 7. FSR upscaling ◐
+
+**Status (2026-11-17):** v1 implemented, not yet device-tested. Option 1 from the upscaling discussion: Wine's own FSR 1 (`WINE_FULLSCREEN_FSR`, Proton / GE-Proton fullscreen hack) switched per game from a new **FSR** sidebar tab. `extension/BhFsr.java` (launch env + Wine support check + DXVK render-size reader), `extension/BhFsrPanel.java` (UI), `BhWineLog.env/command` (hook), sidebar tab via `BhFsrFragment.smali` + `BhFsrClickListener.smali`, `WineActivityDrawerContent` (`U()` branch, click wiring), icon `sidebar_fsr.xml`.
+
+**To test on the device:** does the Status line say the Wine build supports FSR (which Wine builds do)? Does removing `WINE_DISABLE_FULLSCREEN_HACK` break anything (GameHub sets it for every game)? With a lower in-game fullscreen resolution, does "Game renders at" drop and FPS rise? Do the render-size modes work?
+
+**Later options:** our own Vulkan layer (FSR 1 / Snapdragon GSR / CAS at present, works with any Wine), or OptiScaler per game for titles with DLSS/XeSS/FSR 2 inputs.
+
 ## 5. Housekeeping ☑
 
 **Status (2026-10-27):** done at Elad's request. The work branch replaced `main` (which only held a one-line "Initial commit"); CI builds on pushes to `main`. Builds are signed with Elad's own release key (RSA 4096, alias `bunnerhub-etech`, cert SHA-256 `D5:F2:A2:7C:…:F4:DA`), stored as repo secrets `SIGNING_KEYSTORE_B64` / `SIGNING_KEYSTORE_PASSWORD` / `SIGNING_KEY_ALIAS`; the keystore itself lives only outside the repo (Elad's PC, to be backed up). Without the secrets (forks) CI falls back to the public test key and names the APK `…-testkey.apk`. Switching keys needed one uninstall.

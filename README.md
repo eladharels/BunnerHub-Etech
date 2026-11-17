@@ -62,6 +62,7 @@ Before any stable release is published, all changes are manually debugged and te
   - [Crash Reports](#crash-reports)
   - [Known Fixes](#known-fixes)
   - [In-Game Trainer](#in-game-trainer)
+  - [FSR Upscaling](#fsr-upscaling)
   - [PC Game Settings: Offline Mode](#pc-game-settings-offline-mode)
   - [Offline Steam Launch](#offline-steam-launch)
   - [Settings: Advanced Tab](#settings-advanced-tab)
@@ -787,6 +788,24 @@ Change values in a running game, Cheat Engine style: XP, money, ammo, item count
 4. Saved values show live; tap one to set it, **Freeze** it (kept at the current value) or delete it. They're remembered per game.
 
 The type button switches between 4 bytes (most counters), Float, 2 bytes, 1 byte and Double. Addresses can change after the game restarts; search again if a saved value stops working. **Single-player games only**: games with online anti-cheat can detect memory changes.
+
+---
+
+### FSR Upscaling
+
+Per-game AMD FSR 1 upscaling through Wine's fullscreen hack (the `WINE_FULLSCREEN_FSR` feature of Proton / GE-Proton Wine builds). The game renders a smaller picture and Wine upscales and sharpens it to the Wine screen size, so the GPU draws fewer pixels. It's in the in-game sidebar (**☰** while playing) as the **FSR** tab.
+
+The tab shows, refreshed every second:
+- **Game renders at**: the game's swapchain size, read from DXVK's output
+- **FSR upscales to (Wine screen)**: the resolution set in the game's GameHub settings
+- **Your display**: the device panel
+- **Upscale factor**: e.g. `1.50× (44% of the pixels)`, with a note when the game is at full size and FSR has nothing to do
+
+Settings (per game, applied the next time the game starts): **FSR on/off**, **FSR strength** 0–5 (0 = sharpest, default 2) and **Render size**: *Game's own setting* (choose a lower resolution in the game's video options, fullscreen) or a fixed FSR mode (Ultra quality 77%, Quality 67%, Balanced 59%, Performance 50%) when the Wine build supports `WINE_FULLSCREEN_FSR_MODE`.
+
+**Status** says whether the selected Wine build includes FSR (checked at each launch by looking for the FSR variables in Wine's `winex11` / `winevulkan` / `win32u` libraries), and what this session actually got. GameHub always launches Wine with `WINE_DISABLE_FULLSCREEN_HACK=1`; with FSR on, that variable is removed and `WINE_FULLSCREEN_FSR=1`, `WINE_FULLSCREEN_FSR_STRENGTH` and (optionally) `WINE_FULLSCREEN_FSR_MODE` are added. `DXVK_LOG_LEVEL` is raised from `warn` to `info` and the session's Wine output is saved to `/sdcard/BunnerHub-Etech/logs/` so the render size can be read.
+
+Limits: Vulkan presentation only, so DirectX 9–12 games through DXVK / VKD3D-Proton; OpenGL games aren't upscaled. The render size comes from DXVK, so DX12 games may show it as unknown.
 
 ---
 

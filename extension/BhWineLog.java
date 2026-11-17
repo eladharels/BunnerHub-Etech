@@ -38,6 +38,9 @@ import java.util.Locale;
  * shell execs into the original argv, so the PID that GameHub records (and
  * later kills) is still the Wine process. Children inherit fds 1 and 2.
  *
+ * Capture is also on while FSR upscaling is on for the game (BhFsr), which
+ * reads the render size from DXVK's output.
+ *
  * Any failure returns the arguments unchanged: worst case is stock GameHub.
  */
 public final class BhWineLog {
@@ -53,8 +56,9 @@ public final class BhWineLog {
 
     private BhWineLog() {}
 
-    /** Adds FEX logging switches when capture is on. */
+    /** Applies per-game FSR (BhFsr) and adds FEX logging switches when debugging. */
     public static String[] env(String[] env) {
+        env = BhFsr.env(env);
         try {
             if (!isEnabled(env)) return env;
             List<String> out = new ArrayList<>(Arrays.asList(env));
@@ -72,7 +76,8 @@ public final class BhWineLog {
         // Mark where this session starts in /sdcard/wine.log, for crash reports.
         BhCrashReporter.onLaunch();
         try {
-            if (!isEnabled(env)) return argv;
+            // FSR on: capture too, so BhFsr can read DXVK's swapchain size.
+            if (!isEnabled(env) && !BhFsr.isOn(env)) return argv;
             File log = sessionFile();
             if (log == null) return argv;
             writeHeader(log, argv, env);
@@ -89,6 +94,11 @@ public final class BhWineLog {
             Log.w(TAG, "command hook failed", t);
             return argv;
         }
+    }
+
+    /** This session's log file, or null if nothing was captured yet. */
+    static synchronized File currentSessionFile() {
+        return sessionFile;
     }
 
     private static boolean isEnabled(String[] env) {

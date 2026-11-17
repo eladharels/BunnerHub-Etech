@@ -306,6 +306,15 @@
     invoke-direct {v1, p0}, Lcom/xj/winemu/sidebar/BhTrainerClickListener;-><init>(Lcom/xj/winemu/sidebar/WineActivityDrawerContent;)V
     invoke-virtual {v0, v1}, Lcom/xj/winemu/view/SidebarTitleItemView;->setClickListener(Lkotlin/jvm/functions/Function0;)V
 
+    # BunnerHub Etech: FSR upscaling tab (id sidebar_fsr)
+    const v0, 0x7f0a0f12
+    invoke-virtual {p0, v0}, Landroid/view/View;->findViewById(I)Landroid/view/View;
+    move-result-object v0
+    check-cast v0, Lcom/xj/winemu/view/SidebarTitleItemView;
+    new-instance v1, Lcom/xj/winemu/sidebar/BhFsrClickListener;
+    invoke-direct {v1, p0}, Lcom/xj/winemu/sidebar/BhFsrClickListener;-><init>(Lcom/xj/winemu/sidebar/WineActivityDrawerContent;)V
+    invoke-virtual {v0, v1}, Lcom/xj/winemu/view/SidebarTitleItemView;->setClickListener(Lkotlin/jvm/functions/Function0;)V
+
     .line 23
     sget-object p2, Lcom/xj/common/data/preferences/AppPreferences;->INSTANCE:Lcom/xj/common/data/preferences/AppPreferences;
 
@@ -1063,6 +1072,10 @@
     const v1, 0xa8774df
     if-eq v0, v1, :cond_trainer
 
+    # BhFsrFragment hash = "BhFsrFragment".hashCode() = -1183825297 = -0x468fbd91
+    const v1, -0x468fbd91
+    if-eq v0, v1, :cond_fsr
+
     .line 33
     .line 34
     goto :goto_0
@@ -1083,6 +1096,15 @@
     if-eqz v0, :goto_0
     new-instance v2, Lcom/xj/winemu/sidebar/BhTrainerFragment;
     invoke-direct {v2}, Lcom/xj/winemu/sidebar/BhTrainerFragment;-><init>()V
+    goto :goto_0
+
+    :cond_fsr
+    const-string v0, "BhFsrFragment"
+    invoke-virtual {p1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+    move-result v0
+    if-eqz v0, :goto_0
+    new-instance v2, Lcom/xj/winemu/sidebar/BhFsrFragment;
+    invoke-direct {v2}, Lcom/xj/winemu/sidebar/BhFsrFragment;-><init>()V
     goto :goto_0
 
     .line 35

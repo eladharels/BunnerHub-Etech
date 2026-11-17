@@ -4,6 +4,15 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — FSR upscaling tab in the in-game sidebar (2026-11-17)
+Roadmap item 7 (upscaling option 1: Wine's built-in FSR 1).
+- Finding: `EnvironmentController` always sets `WINE_DISABLE_FULLSCREEN_HACK=1`, and Proton/GE Wine's FSR lives inside that fullscreen hack. GameHub also sets `DXVK_LOG_LEVEL=warn`. (Its own `SuperResolution` setting is only CAS sharpening in the X renderer, not upscaling.)
+- `extension/BhFsr.java`, called first in `BhWineLog.env()` (existing `ProgramLauncher.e()` hook, no new smali hook): per game (prefs `bh_fsr`: `on_<id>`, `strength_<id>`, `mode_<id>`) removes `WINE_DISABLE_FULLSCREEN_HACK`, adds `WINE_FULLSCREEN_FSR=1`, `WINE_FULLSCREEN_FSR_STRENGTH`, optional `WINE_FULLSCREEN_FSR_MODE`, raises `DXVK_LOG_LEVEL` to `info`. Every launch checks the Wine install from `PATH` (`<wine>/<abi>/bin`) and scans `lib*/wine/**/{winex11,winevulkan,win32u}*.so` for the variable names (cached by path/size/mtime); with no FSR in the build, FSR stays off.
+- `BhWineLog.command()` also captures the session's Wine output while FSR is on; `BhFsr.renderSize()` reads DXVK's `Buffer size: WxH` from it incrementally.
+- `extension/BhFsrPanel.java`: live render size, Wine screen size (`WineActivity` → `WinUIBridge` → `Config` → `Config$Resolution`, by reflection on field types), display size, upscale factor; Status (Wine support, this session's applied settings, "restart to apply"); settings (on/off, strength 0–5, render-size mode).
+- Sidebar: tab `sidebar_fsr` (id `0x7f0a0f12`, drawable `0x7f080b50`), `BhFsrClickListener` → `U("BhFsrFragment")` (hash `-0x468fbd91`) → smali `BhFsrFragment`.
+- Checked locally: extension compiles; full apktool rebuild with `patches/` succeeds and the resource ids land as above; scan/log parsers unit-tested. Not yet device-tested.
+
 ### [sync] — Upstream v3.8.2-pre1: no USB popup for DualSense / GameSir (2026-11-17)
 - Checked upstream The412Banner/BannerHub: this fork already contains all of upstream `main` (v3.8.1, `3b9ca26`) and the `feature/audio-recording-mode` branch. The only newer upstream change is `5a27c67` (tag `v3.8.2-pre1`, branch `fix/usb-controller-popup`).
 - Cherry-picked it: `patches/AndroidManifest.xml` drops the `USB_DEVICE_ATTACHED` intent filter and `device_filter` meta-data from XiaoJi's `PermissionsActivity`, so Android no longer asks "Open BannerHub?" each time a DualSense (054c:0ce6) or GameSir (3537:0108/0112/1116/1138) controller is plugged in. Controller input still goes through Android's normal input system.
