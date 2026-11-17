@@ -223,12 +223,18 @@ public final class BhFsr {
      * / win32u unix libraries are searched for the FSR variable names.
      * Cached per install (path, sizes, mtimes).
      */
-    private static Support detect(Context ctx, String[] env) {
+    private static String detectedPath;
+
+    private static synchronized Support detect(Context ctx, String[] env) {
         String path = null;
         for (String kv : env) {
             if (kv != null && kv.startsWith("PATH=")) path = kv.substring(5);
         }
         if (path == null) return remember(new Support(Support.UNKNOWN, false, false, null));
+        // Every launcher of a session has the same PATH: check once per process and Wine.
+        Support known = support;
+        if (known != null && known.state != Support.UNKNOWN && path.equals(detectedPath)) return known;
+        detectedPath = path;
 
         // Last entry first: Wine's own bin comes after the rootfs one.
         String[] dirs = path.split(":");
@@ -250,13 +256,21 @@ public final class BhFsr {
             StringBuilder key = new StringBuilder(root.getAbsolutePath());
             for (File f : libs) key.append('|').append(f.getName()).append(f.length()).append(':').append(f.lastModified());
             SharedPreferences p = prefs(ctx);
+            String slot = "sup_" + root.getAbsolutePath().hashCode();
             int found;
-            if (key.toString().equals(p.getString("sup_key", null))) {
-                found = p.getInt("sup_val", 0);
+            if (key.toString().equals(p.getString(slot + "_key", null))) {
+                found = p.getInt(slot + "_val", 0);
             } else {
                 found = 0;
-                for (File f : libs) found |= scan(f);
-                p.edit().putString("sup_key", key.toString()).putInt("sup_val", found).apply();
+                for (File f : libs) {
+                    int bits = scan(f);
+                    if (bits < 0) {
+                        // Unreadable: say "couldn't check" and try again next launch.
+                        return remember(new Support(Support.UNKNOWN, false, false, root.getAbsolutePath()));
+                    }
+                    found |= bits;
+                }
+                p.edit().putString(slot + "_key", key.toString()).putInt(slot + "_val", found).apply();
                 Log.i(TAG, "checked " + libs.size() + " Wine libraries in " + root + ": " + found);
             }
             boolean fsr = (found & 1) != 0;
@@ -287,7 +301,7 @@ public final class BhFsr {
         }
     }
 
-    /** Bit i set when NEEDLES[i] occurs in the file. */
+    /** Bit i set when NEEDLES[i] occurs in the file; -1 if it can't be read. */
     private static int scan(File f) {
         int found = 0;
         int overlap = 64;
@@ -306,6 +320,7 @@ public final class BhFsr {
             }
         } catch (Throwable t) {
             Log.w(TAG, "cannot read " + f, t);
+            return -1;
         }
         return found;
     }
@@ -327,42 +342,69 @@ public final class BhFsr {
 
     private static final Pattern BUFFER = Pattern.compile("Buffer size:\\s*(\\d+)\\s*x\\s*(\\d+)");
     private static final int CHUNK = 256 * 1024;
-    private static final int OVERLAP = 128;
+
+    /** Where this game's FSR session starts in the capture file. */
+    private static File markFile;
+    private static long markOffset;
+    private static String markGame;
 
     private static File scannedFile;
-    private static long scannedTo;
+    private static long scannedFrom, scannedTo;
     private static int[] lastSize;
 
     /**
-     * {width, height} of the game's latest swapchain, or null if not seen
-     * yet. Reads only what the log gained since the last call, so call it
-     * off the UI thread.
+     * BhWineLog.command, for each launcher captured because FSR is on. The
+     * first launcher of a game's session marks the file and offset, so sizes
+     * from an earlier session sharing the file aren't shown.
+     */
+    static synchronized void markLaunch(File log) {
+        Applied a = applied;
+        String game = a == null ? null : a.gameId;
+        if (log.equals(markFile) && game != null && game.equals(markGame)) return;
+        markFile = log;
+        markOffset = log.length();
+        markGame = game;
+    }
+
+    /**
+     * {width, height} of this FSR session's latest swapchain, or null if not
+     * seen yet (or FSR is off for the current game). Reads only complete lines
+     * the log gained since the last call, so call it off the UI thread.
      */
     public static synchronized int[] renderSize() {
-        File log = BhWineLog.currentSessionFile();
-        if (log == null || !log.isFile()) return null;
-        if (!log.equals(scannedFile)) {
+        Applied a = applied;
+        String id = BhPlayTime.currentGameId();
+        File log = markFile;
+        if (a == null || !a.on || id == null || !id.equals(a.gameId) || !id.equals(markGame)
+                || log == null || !log.isFile()) {
+            return null;
+        }
+        if (!log.equals(scannedFile) || scannedFrom != markOffset) {
             scannedFile = log;
-            scannedTo = 0;
+            scannedFrom = markOffset;
+            scannedTo = markOffset;
             lastSize = null;
         }
         try (RandomAccessFile f = new RandomAccessFile(log, "r")) {
             long len = f.length();
-            if (len < scannedTo) {
-                scannedTo = 0;
-                lastSize = null;
-            }
-            byte[] buf = new byte[CHUNK + OVERLAP];
+            if (len <= scannedTo) return lastSize;
+            byte[] buf = new byte[(int) Math.min(CHUNK, len - scannedTo)];
             while (scannedTo < len) {
-                long from = Math.max(0, scannedTo - OVERLAP);
-                int n = (int) Math.min(buf.length, len - from);
-                f.seek(from);
+                int n = (int) Math.min(buf.length, len - scannedTo);
+                f.seek(scannedTo);
                 f.readFully(buf, 0, n);
-                Matcher m = BUFFER.matcher(new String(buf, 0, n, "ISO-8859-1"));
+                // Only complete lines: a size line still being written is read next time.
+                int end = n;
+                while (end > 0 && buf[end - 1] != '\n') end--;
+                if (end == 0) {
+                    if (n < CHUNK) break;      // partial last line, wait for more
+                    end = n;                   // a line longer than a chunk: skip it
+                }
+                Matcher m = BUFFER.matcher(new String(buf, 0, end, "ISO-8859-1"));
                 while (m.find()) {
                     lastSize = new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2))};
                 }
-                scannedTo = from + n;
+                scannedTo += end;
             }
         } catch (Throwable t) {
             Log.w(TAG, "cannot read " + log, t);

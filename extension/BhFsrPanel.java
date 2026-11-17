@@ -20,6 +20,7 @@ import java.lang.reflect.Field;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * BhFsrPanel — the FSR page of the in-game sidebar (WineActivity drawer, tab
@@ -49,13 +50,23 @@ public final class BhFsrPanel {
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService io = Executors.newSingleThreadExecutor();
     private static volatile int[] render;
+    private static final AtomicBoolean reading = new AtomicBoolean();
     private static final Runnable refresher = new Runnable() {
         @Override
         public void run() {
-            io.execute(() -> {
-                render = BhFsr.renderSize();
-                ui.post(BhFsrPanel::refreshSizes);
-            });
+            if (renderValue == null) return;
+            // Skip the work while the drawer is closed, and never queue a
+            // second log read behind one that is still running.
+            if (renderValue.isShown() && reading.compareAndSet(false, true)) {
+                io.execute(() -> {
+                    try {
+                        render = BhFsr.renderSize();
+                    } finally {
+                        reading.set(false);
+                    }
+                    ui.post(BhFsrPanel::refreshSizes);
+                });
+            }
             ui.postDelayed(this, 1000);
         }
     };
@@ -66,6 +77,7 @@ public final class BhFsrPanel {
     public static android.view.View create(Context context) {
         ctx = context;
         gameId = BhPlayTime.currentGameId();
+        render = null;
 
         ScrollView scroll = new ScrollView(ctx);
         scroll.setVerticalScrollBarEnabled(false);
@@ -175,6 +187,15 @@ public final class BhFsrPanel {
         ui.removeCallbacks(refresher);
     }
 
+    /** BhFsrFragment.onDestroyView: drop the views and the Activity. */
+    public static void onDestroyed() {
+        ui.removeCallbacks(refresher);
+        ctx = null;
+        gameLine = wineLine = sessionLine = pendingLine = null;
+        renderValue = outputValue = displayValue = factorValue = hintLine = null;
+        toggle = strengthLabel = modeButton = null;
+    }
+
     // ── Actions ──────────────────────────────────────────────────────────────
 
     private static void changeStrength(int delta) {
@@ -194,7 +215,7 @@ public final class BhFsrPanel {
     // ── Display ──────────────────────────────────────────────────────────────
 
     private static void refreshSettings() {
-        if (toggle == null) return;
+        if (toggle == null || ctx == null) return;
         boolean on = BhFsr.enabled(ctx, gameId);
         int strength = BhFsr.strength(ctx, gameId);
         BhFsr.Mode mode = BhFsr.mode(ctx, gameId);
@@ -239,7 +260,7 @@ public final class BhFsrPanel {
     }
 
     private static void refreshSizes() {
-        if (renderValue == null) return;
+        if (renderValue == null || ctx == null) return;
         int[] out = wineScreen();
         int[] disp = display();
         int[] render = BhFsrPanel.render;

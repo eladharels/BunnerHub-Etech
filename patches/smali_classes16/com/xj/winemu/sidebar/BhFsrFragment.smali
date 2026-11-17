@@ -37,3 +37,10 @@
     invoke-static {}, Lapp/revanced/extension/gamehub/BhFsrPanel;->onHidden()V
     return-void
 .end method
+
+.method public onDestroyView()V
+    .locals 0
+    invoke-super {p0}, Landroidx/fragment/app/Fragment;->onDestroyView()V
+    invoke-static {}, Lapp/revanced/extension/gamehub/BhFsrPanel;->onDestroyed()V
+    return-void
+.end method

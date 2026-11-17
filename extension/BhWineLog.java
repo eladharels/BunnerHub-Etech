@@ -48,6 +48,7 @@ public final class BhWineLog {
     private static final String TAG = "BhWineLog";
     private static final String LOG_DIR = "BunnerHub-Etech/logs";
     private static final int KEEP_LOGS = 10;
+    private static final int KEEP_FSR_LOGS = 3;
     /** Launchers started within this window share one session file. */
     private static final long SESSION_WINDOW_MS = 120_000;
 
@@ -77,9 +78,14 @@ public final class BhWineLog {
         BhCrashReporter.onLaunch();
         try {
             // FSR on: capture too, so BhFsr can read DXVK's swapchain size.
-            if (!isEnabled(env) && !BhFsr.isOn(env)) return argv;
-            File log = sessionFile();
+            // Those captures get their own "fsr-" files so they never push
+            // out debug logs a user kept.
+            boolean debug = isEnabled(env);
+            boolean fsr = BhFsr.isOn(env);
+            if (!debug && !fsr) return argv;
+            File log = debug ? sessionFile("wine-", KEEP_LOGS) : sessionFile("fsr-", KEEP_FSR_LOGS);
             if (log == null) return argv;
+            if (fsr) BhFsr.markLaunch(log);
             writeHeader(log, argv, env);
 
             String[] out = new String[argv.length + 4];
@@ -94,11 +100,6 @@ public final class BhWineLog {
             Log.w(TAG, "command hook failed", t);
             return argv;
         }
-    }
-
-    /** This session's log file, or null if nothing was captured yet. */
-    static synchronized File currentSessionFile() {
-        return sessionFile;
     }
 
     private static boolean isEnabled(String[] env) {
@@ -120,28 +121,29 @@ public final class BhWineLog {
         env.add(prefix + value);
     }
 
-    private static synchronized File sessionFile() {
+    private static synchronized File sessionFile(String prefix, int keep) {
         long now = System.currentTimeMillis();
-        if (sessionFile == null || now - lastWrapMs > SESSION_WINDOW_MS) {
+        if (sessionFile == null || now - lastWrapMs > SESSION_WINDOW_MS
+                || !sessionFile.getName().startsWith(prefix)) {
             File dir = new File(Environment.getExternalStorageDirectory(), LOG_DIR);
             if (!dir.isDirectory() && !dir.mkdirs()) {
                 Log.w(TAG, "cannot create " + dir);
                 return null;
             }
-            prune(dir);
+            prune(dir, prefix, keep);
             String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date(now));
-            sessionFile = new File(dir, "wine-" + stamp + ".log");
+            sessionFile = new File(dir, prefix + stamp + ".log");
         }
         lastWrapMs = now;
         return sessionFile;
     }
 
-    /** Keeps the newest KEEP_LOGS - 1 logs, making room for the new one. */
-    private static void prune(File dir) {
-        File[] logs = dir.listFiles((d, name) -> name.startsWith("wine-") && name.endsWith(".log"));
-        if (logs == null || logs.length < KEEP_LOGS) return;
+    /** Keeps the newest keep - 1 logs with this prefix, making room for the new one. */
+    private static void prune(File dir, String prefix, int keep) {
+        File[] logs = dir.listFiles((d, name) -> name.startsWith(prefix) && name.endsWith(".log"));
+        if (logs == null || logs.length < keep) return;
         Arrays.sort(logs, (a, b) -> a.getName().compareTo(b.getName()));
-        for (int i = 0; i <= logs.length - KEEP_LOGS; i++) {
+        for (int i = 0; i <= logs.length - keep; i++) {
             if (!logs[i].delete()) Log.w(TAG, "cannot delete " + logs[i]);
         }
     }

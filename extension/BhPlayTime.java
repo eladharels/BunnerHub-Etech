@@ -87,7 +87,11 @@ public final class BhPlayTime {
         try {
             Object data = wineActivityData(activity);
             if (data == null) return;
-            if (Boolean.TRUE.equals(readField(data, "e"))) return; // container desktop, not a game
+            if (Boolean.TRUE.equals(readField(data, "e"))) { // container desktop, not a game
+                curId = null;
+                curName = null;
+                return;
+            }
             Object id = readField(data, "a");
             if (!(id instanceof String) || ((String) id).isEmpty()) return;
 
