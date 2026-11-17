@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [sync] — Upstream v3.8.2-pre1: no USB popup for DualSense / GameSir (2026-11-17)
+- Checked upstream The412Banner/BannerHub: this fork already contains all of upstream `main` (v3.8.1, `3b9ca26`) and the `feature/audio-recording-mode` branch. The only newer upstream change is `5a27c67` (tag `v3.8.2-pre1`, branch `fix/usb-controller-popup`).
+- Cherry-picked it: `patches/AndroidManifest.xml` drops the `USB_DEVICE_ATTACHED` intent filter and `device_filter` meta-data from XiaoJi's `PermissionsActivity`, so Android no longer asks "Open BannerHub?" each time a DualSense (054c:0ce6) or GameSir (3537:0108/0112/1116/1138) controller is plugged in. Controller input still goes through Android's normal input system.
+- Not yet device-tested in this fork.
+
 ### [perf] — Faster launcher start on weak networks (2026-10-27)
 - Finding: every start called GameHub's `landscape-api.vgabc.com` (`/cloud/game/check_user_timer`, `/heartbeat/game/getUserPlayTimeList` x2); with the login bypass they always answer 401, each followed by a token refresh. On good Wi-Fi ~1 s each; on a weak network each can hang for GameHub's 20-30 s timeouts.
 - Fix: `extension/BhNet.java`, called from drake Net's `NetOkHttpInterceptor.intercept()` (build.yml "Apply network speed-up patch"): refuses `/cloud/` and `/heartbeat/` calls to `*.vgabc.com` at once (ConnectException, handled like offline); other `*.vgabc.com` calls get 5 s connect / 10 s read timeouts. Stores and downloads untouched.
