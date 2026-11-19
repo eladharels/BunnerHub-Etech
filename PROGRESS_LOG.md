@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Trainer programs: one-time .NET support (Wine Mono) (2026-11-19)
+- Diagnosis from the device logs (Sleeping Dogs, FLiNG trainer): the launch works (trainer process `C:\\bh_trainer\\…Trainer.exe` in the game's Wine, prefix `files/usr/home/virtual_containers/3856`, `run.exe` returned 0 at once), but the trainer dies: `err:mscoree:CLRRuntimeInfo_GetRuntimeHost Wine Mono is not installed` → `Unimplemented function mscoree.dll.CorBindToRuntime`. The trainer is a .NET program, and GameHub's Wine (wine-11.0, Proton 11 arm64x) ships without Wine Mono.
+- `BhTrainerProgram.needsMono()` reads `logs/trainer-output.log` for that error; the card then says the trainer needs .NET support and shows **Install .NET support**. `installMono()`: the Wine Mono version from the game Wine's `mscoree.dll` / `appwiz.cpl` strings (NUL-terminated `x.y.z`, major ≥ 4, highest), else GitHub's latest release; downloads `wine-mono-<v>-x86.msi` (WineHQ, then the GitHub mirror) to `<prefix>/drive_c/bh_wine_mono/` with progress, then runs `linker64 …/bin/wine msiexec /i C:\\bh_wine_mono\\… /qn` with the game's environment (≤ 10 min, output in `logs/mono-install.log`).
+- Checked locally: version detection on fake Wine files (picks 10.3.0 over .NET and Gecko version strings). Not yet device-tested.
+
 ### [diag] — Trainer programs: why no window appears (2026-11-19)
 - Device report (Sleeping Dogs): Start said "Starting…" but no trainer window showed. `trainer-launch.txt` shows GameHub's game command: `linker64 …/opt/wine_proton11.0-arm64x/arm64-v8a/bin/wine z:\\…\\usr\\embedded\\run.exe_v16045985 e:\\games\\Sleeping Dogs Pack\\DE\\sdhdship.exe` (working dir `files/usr`); the trainer ran the same with `C:\\bh_trainer\\…Trainer.exe`.
 - Open: the trainer exits at once (GameHub's `run.exe` launcher?), runs with its window hidden under the game's direct rendering, or the copy went to another prefix.

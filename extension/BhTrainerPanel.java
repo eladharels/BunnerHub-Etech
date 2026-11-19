@@ -47,7 +47,7 @@ public final class BhTrainerPanel {
     private static Button typeButton, nextButton, finderType, lockAll;
     private static LinearLayout tableBox, programBox;
     private static TextView programStatus;
-    private static Button programStartStop;
+    private static Button programStartStop, programMono;
     private static boolean programChecking, programBusy, programRefocus;
 
     private static View firstFocusable(android.view.ViewGroup g) {
@@ -440,6 +440,11 @@ public final class BhTrainerPanel {
         row.addView(auto, weightMargins(1f, 8));
         programBox.addView(row, margins(0, 8, 0, 0));
 
+        programMono = button("Install .NET support", true);
+        programMono.setVisibility(View.GONE);
+        programMono.setOnClickListener(v -> installMono());
+        programBox.addView(programMono, margins(0, 8, 0, 0));
+
         LinearLayout row2 = new LinearLayout(ctx);
         Button other = button("Find another", false);
         other.setOnClickListener(v -> programFindOnline());
@@ -475,11 +480,14 @@ public final class BhTrainerPanel {
         io.execute(() -> {
             int pid = BhTrainerProgram.runningPid(app);
             boolean starting = pid < 0 && BhTrainerProgram.starting();
+            boolean mono = pid < 0 && !starting && BhTrainerProgram.needsMono();
             ui.post(() -> {
                 programChecking = false;
                 if (programStatus == null || programStartStop == null || programBusy) return;
                 programStatus.setText(pid > 0 ? "Running" : starting ? "Starting… (its window appears in a few seconds)"
-                        : "Not running");
+                        : mono ? "This trainer needs .NET support (Wine Mono), which GameHub's Wine leaves out. "
+                        + "Install it once for this game (about 80 MB)." : "Not running");
+                if (programMono != null) programMono.setVisibility(mono ? View.VISIBLE : View.GONE);
                 programStartStop.setText(pid > 0 ? "Stop" : "Start");
                 programStartStop.setTag(pid > 0);
                 programStartStop.setEnabled(!starting);
@@ -527,6 +535,31 @@ public final class BhTrainerPanel {
 
     private static void toastLong(String s) {
         if (ctx != null) Toast.makeText(ctx, s, Toast.LENGTH_LONG).show();
+    }
+
+    private static void installMono() {
+        if (programBusy) return;
+        programBusy = true;
+        programMono.setEnabled(false);
+        programMono.setAlpha(0.4f);
+        programStartStop.setEnabled(false);
+        programStartStop.setAlpha(0.4f);
+        io.execute(() -> {
+            String msg;
+            try {
+                msg = BhTrainerProgram.installMono(text -> ui.post(() -> {
+                    if (programStatus != null) programStatus.setText(text);
+                }));
+            } catch (Throwable t) {
+                msg = "Couldn't install .NET support: " + (t.getMessage() != null ? t.getMessage() : t.toString());
+            }
+            String m = msg;
+            ui.post(() -> {
+                programBusy = false;
+                toastLong(m);
+                showProgram();
+            });
+        });
     }
 
     private static void programFindOnline() {

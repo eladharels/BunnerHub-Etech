@@ -427,6 +427,208 @@ public final class BhTrainerProgram {
         }, "BhTrainerWatch").start();
     }
 
+    // ── .NET support (Wine Mono) ─────────────────────────────────────────────
+    //
+    // Some trainers are .NET programs. Wine runs those with Wine Mono, which
+    // GameHub's Wine builds leave out: the trainer then dies at once with
+    // "Wine Mono is not installed" (mscoree CorBindToRuntime). The fix is a
+    // one-time install of the Wine Mono .msi that matches the game's Wine
+    // into the game's prefix, with Wine's own msiexec.
+
+    /** True when the last trainer start died for want of Wine Mono. */
+    static boolean needsMono() {
+        File out = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs/trainer-output.log");
+        if (!out.isFile() || out.length() > 4L << 20) return false;
+        try {
+            byte[] d = new byte[(int) out.length()];
+            try (InputStream in = new FileInputStream(out)) {
+                int got = 0;
+                while (got < d.length) {
+                    int n = in.read(d, got, d.length - got);
+                    if (n < 0) break;
+                    got += n;
+                }
+            }
+            String t = new String(d, "ISO-8859-1");
+            return t.contains("Wine Mono is not installed") || t.contains("mscoree.dll.CorBindToRuntime");
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    interface Progress {
+        void update(String text);
+    }
+
+    /** Downloads the matching Wine Mono and installs it into the game's prefix. */
+    static synchronized String installMono(Progress progress) throws Exception {
+        String[] argv = gameArgv;
+        String[] env = gameEnv;
+        if (argv == null) throw new IllegalStateException("Restart the game once, then try again.");
+        String prefix = envValue(env, "WINEPREFIX");
+        if (prefix == null) throw new IllegalStateException("Can't find the game's Wine");
+        int wineIdx = -1;
+        for (int i = 0; i < argv.length; i++) if (argv[i].contains("/bin/wine")) wineIdx = i;
+        if (wineIdx < 0) throw new IllegalStateException("Can't find the game's Wine program");
+
+        progress.update("Finding the Wine Mono version for this Wine…");
+        File wineRoot = new File(argv[wineIdx]).getParentFile().getParentFile();
+        String version = monoVersion(wineRoot);
+        if (version == null) version = latestMonoVersion();
+        if (version == null) throw new IllegalStateException("Can't tell which Wine Mono to install");
+
+        File dir = new File(prefix, "drive_c/bh_wine_mono");
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("Cannot create " + dir);
+        String msiName = "wine-mono-" + version + "-x86.msi";
+        File msi = new File(dir, msiName);
+        if (!msi.isFile() || msi.length() < (10L << 20)) {
+            String[] urls = {
+                    "https://dl.winehq.org/wine/wine-mono/" + version + "/" + msiName,
+                    "https://github.com/madewokherd/wine-mono/releases/download/wine-mono-" + version + "/" + msiName,
+            };
+            Exception last = null;
+            for (String u : urls) {
+                try {
+                    downloadTo(u, msi, progress);
+                    last = null;
+                    break;
+                } catch (Exception e) {
+                    last = e;
+                }
+            }
+            if (last != null) throw new IllegalStateException("Download failed: " + last.getMessage());
+        }
+
+        progress.update("Installing Wine Mono " + version + " (a minute or two)…");
+        List<String> cmd = new ArrayList<>();
+        for (int i = 0; i <= wineIdx; i++) cmd.add(argv[i]);
+        cmd.add("msiexec");
+        cmd.add("/i");
+        cmd.add("C:\\bh_wine_mono\\" + msiName);
+        cmd.add("/qn");
+        File logs = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs");
+        if (!logs.isDirectory()) logs.mkdirs();
+        Process p = launch(cmd.toArray(new String[0]), env, new File(logs, "mono-install.log"), false);
+        if (!p.waitFor(10, java.util.concurrent.TimeUnit.MINUTES)) {
+            p.destroy();
+            throw new IllegalStateException("The installer took too long");
+        }
+        if (p.exitValue() != 0) {
+            throw new IllegalStateException("The installer failed (code " + p.exitValue() + "); see logs/mono-install.log");
+        }
+        // Empty the output log so needsMono() stops asking.
+        write(new File(logs, "trainer-output.log"), new byte[0]);
+        return "Wine Mono " + version + " installed. Tap Start.";
+    }
+
+    /** The Wine Mono version this Wine expects, from its mscoree.dll / appwiz.cpl, or null. */
+    static String monoVersion(File wineRoot) {
+        List<File> files = new ArrayList<>();
+        for (File base : new File[]{wineRoot, wineRoot == null ? null : wineRoot.getParentFile()}) {
+            if (base != null) findFiles(new File(base, "lib"), files, 0);
+        }
+        String best = null;
+        java.util.regex.Pattern v = java.util.regex.Pattern.compile("^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{1,2})$");
+        for (File f : files) {
+            for (String str : strings(f)) {
+                java.util.regex.Matcher m = v.matcher(str);
+                if (m.matches() && Integer.parseInt(m.group(1)) >= 4 && (best == null || newer(str, best))) best = str;
+            }
+        }
+        return best;
+    }
+
+    private static void findFiles(File dir, List<File> out, int depth) {
+        File[] kids = dir.listFiles();
+        if (kids == null || depth > 4) return;
+        for (File k : kids) {
+            if (k.isDirectory()) findFiles(k, out, depth + 1);
+            else if (k.getName().equalsIgnoreCase("mscoree.dll") || k.getName().equalsIgnoreCase("appwiz.cpl")) out.add(k);
+        }
+    }
+
+    /** NUL-terminated printable strings of 5-8 characters (version-shaped). */
+    private static List<String> strings(File f) {
+        List<String> out = new ArrayList<>();
+        if (f.length() > 64L << 20) return out;
+        try (InputStream in = new java.io.BufferedInputStream(new FileInputStream(f))) {
+            StringBuilder cur = new StringBuilder();
+            int b;
+            while ((b = in.read()) >= 0) {
+                if (b >= 0x20 && b < 0x7F) {
+                    if (cur.length() < 16) cur.append((char) b);
+                    else cur.setLength(17); // too long to be a version: mark
+                } else {
+                    if (b == 0 && cur.length() >= 5 && cur.length() <= 8) out.add(cur.toString());
+                    cur.setLength(0);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    static boolean newer(String a, String b) {
+        String[] x = a.split("\\."), y = b.split("\\.");
+        for (int i = 0; i < 3; i++) {
+            int d = Integer.parseInt(x[i]) - Integer.parseInt(y[i]);
+            if (d != 0) return d > 0;
+        }
+        return false;
+    }
+
+    /** Latest Wine Mono release on GitHub, e.g. "10.3.0", or null. */
+    private static String latestMonoVersion() {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                    new java.net.URL("https://api.github.com/repos/madewokherd/wine-mono/releases/latest").openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(15000);
+            try (InputStream in = c.getInputStream()) {
+                java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) b.write(buf, 0, n);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"tag_name\"\\s*:\\s*\"wine-mono-([0-9.]+)\"")
+                        .matcher(b.toString("UTF-8"));
+                return m.find() ? m.group(1) : null;
+            } finally {
+                c.disconnect();
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void downloadTo(String url, File dst, Progress progress) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        c.setConnectTimeout(15000);
+        c.setReadTimeout(60000);
+        c.setInstanceFollowRedirects(true);
+        try {
+            int code = c.getResponseCode();
+            if (code != 200) throw new IllegalStateException("HTTP " + code + " from " + url);
+            long total = c.getContentLengthLong();
+            File part = new File(dst.getPath() + ".part");
+            try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part)) {
+                byte[] buf = new byte[1 << 16];
+                long got = 0, shown = 0;
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                    got += n;
+                    if (got - shown > (2L << 20)) {
+                        shown = got;
+                        progress.update("Downloading Wine Mono… " + (got >> 20) + (total > 0 ? " of " + (total >> 20) : "") + " MB");
+                    }
+                }
+            }
+            if (!part.renameTo(dst)) throw new IllegalStateException("Cannot save " + dst);
+        } finally {
+            c.disconnect();
+        }
+    }
+
     // ── Auto-start ───────────────────────────────────────────────────────────
 
     /** BhPlayTime.onGameResume (the :wine process, each time the game screen shows). */
