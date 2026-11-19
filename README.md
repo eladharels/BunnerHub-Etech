@@ -783,7 +783,9 @@ Current list:
 
 ### In-Game Trainer
 
-Change values in a running game, Cheat Engine style: health, XP, money, ammo. It's in the in-game sidebar (**☰** at the bottom while playing) as the **⊕ Trainer** tab, with three ways in, easiest first:
+Change values in a running game, Cheat Engine style: health, XP, money, ammo. It's in the in-game sidebar (**☰** at the bottom while playing) as the **⊕ Trainer** tab, with these ways in, easiest first:
+
+**Trainer program:** a ready-made Windows trainer (e.g. FLiNG's) run inside the game's own Wine. **Find online** opens a trainer site searched for the game; tap the download link once and the trainer (`.exe`, or the `.zip` it comes in) is kept in `/sdcard/BunnerHub-Etech/trainers/<game>/`. Or **Use a file** from Download. From then on it **starts with the game** (a few seconds after the game is running; switch off per game) or with **Start**; **Stop** ends it. The trainer's own window opens over the game. Experimental: cheats that change values should work; cheats that patch the game's code may not take effect under FEX.
 
 **Cheat table:** tap **Find online**: a full-screen browser opens FearLess Revolution searched for the current game. Sign in once (it stays signed in), open the game's thread and tap a table's download link: the `.CT` file (or the `.CT` files in a `.zip`) is saved to `/sdcard/BunnerHub-Etech/tables` and imported for the game, and the browser closes. Or download a `.CT` yourself to **Download** (or `/sdcard/BunnerHub-Etech/tables`) and tap **Import file**. Each cheat shows its live value; tap one to **Set value** or **Freeze** it. The table is remembered per game. Value cheats work, including module + offset addresses (`"game.exe"+1234`), pointer chains (Offsets), bracket addresses (`[[game.exe+10]+20]+48`) and entries relative to their group (`+1C`). A frozen cheat stops by itself when the game closes or another one starts. **Script cheats (Auto Assembler) are not supported yet**, nor names a script defines; the import says how many of the table's cheats can be used, and unusable ones are greyed out with the reason.
 
