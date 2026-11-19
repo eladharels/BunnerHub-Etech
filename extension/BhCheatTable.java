@@ -64,8 +64,11 @@ public final class BhCheatTable {
         public String why;              // why it can't be used, or null
         String address;
         long[] offsets = new long[0];
+        Entry parent;                   // enclosing entry (for "+1C" addresses)
+        boolean relative;               // address starts with + or -: relative to the parent
         public boolean frozen;
         public double frozenValue;
+        int frozenPid;
 
         public boolean usable() {
             return !header && type != null && why == null;
@@ -89,8 +92,15 @@ public final class BhCheatTable {
     /** BhTrainerPanel.create: loads the current game's table, if any. */
     static synchronized void attach(Context ctx) {
         String id = BhPlayTime.currentGameId();
-        if (id == null || id.equals(gameId)) return;
+        if (id != null && id.equals(gameId)) return;
         unfreezeAll();
+        if (id == null) {
+            // No game: drop the last game's table so nothing stays frozen.
+            entries.clear();
+            tableName = null;
+            gameId = null;
+            return;
+        }
         entries.clear();
         tableName = null;
         gameId = id;
@@ -182,11 +192,11 @@ public final class BhCheatTable {
         }
         List<Entry> out = new ArrayList<>();
         Element list = child(root, "CheatEntries");
-        if (list != null) parseEntries(list, 0, out);
+        if (list != null) parseEntries(list, 0, null, out);
         return out;
     }
 
-    private static void parseEntries(Element list, int depth, List<Entry> out) {
+    private static void parseEntries(Element list, int depth, Entry parent, List<Entry> out) {
         NodeList kids = list.getChildNodes();
         for (int i = 0; i < kids.getLength(); i++) {
             Node n = kids.item(i);
@@ -194,6 +204,7 @@ public final class BhCheatTable {
             Element el = (Element) n;
             Entry e = new Entry();
             e.depth = depth;
+            e.parent = parent;
             e.description = unquote(text(el, "Description"));
             if (e.description.isEmpty()) e.description = "(no name)";
             String vt = text(el, "VariableType");
@@ -202,39 +213,62 @@ public final class BhCheatTable {
             boolean group = "1".equals(text(el, "GroupHeader"));
             if (group || (vt.isEmpty() && !script && child(el, "Address") == null)) {
                 e.header = true;
+                // A group can have an address its children are relative to.
+                e.address = text(el, "Address");
+                e.offsets = offsets(el, e);
+                e.relative = isRelative(e.address);
             } else if (script) {
                 e.why = "script (not supported yet)";
             } else {
                 e.type = type(vt);
                 if (e.type == null) e.why = (vt.isEmpty() ? "no type" : vt) + " (not supported)";
                 e.address = text(el, "Address");
-                Element offs = child(el, "Offsets");
-                if (offs != null) {
-                    List<Long> o = new ArrayList<>();
-                    NodeList on = offs.getChildNodes();
-                    for (int k = 0; k < on.getLength(); k++) {
-                        if (on.item(k) instanceof Element && "Offset".equals(on.item(k).getNodeName())) {
-                            try {
-                                o.add(parseHex(on.item(k).getTextContent().trim()));
-                            } catch (Exception ex) {
-                                e.why = "offset \"" + on.item(k).getTextContent().trim() + "\" (not supported)";
-                            }
-                        }
-                    }
-                    e.offsets = new long[o.size()];
-                    for (int k = 0; k < o.size(); k++) e.offsets[k] = o.get(k);
-                }
+                e.offsets = offsets(el, e);
+                e.relative = isRelative(e.address);
                 if (e.why == null) {
                     if (e.address.isEmpty()) e.why = "no address";
                     else {
                         String bad = unsupportedSymbol(e.address);
                         if (bad != null) e.why = "uses \"" + bad + "\" from a script (not supported yet)";
+                        else if (e.relative && !hasBase(parent)) e.why = "relative to a group with no usable address";
                     }
                 }
             }
             out.add(e);
-            if (nested != null) parseEntries(nested, depth + 1, out);
+            if (nested != null) parseEntries(nested, depth + 1, e, out);
         }
+    }
+
+    private static long[] offsets(Element el, Entry e) {
+        Element offs = child(el, "Offsets");
+        if (offs == null) return new long[0];
+        List<Long> o = new ArrayList<>();
+        NodeList on = offs.getChildNodes();
+        for (int k = 0; k < on.getLength(); k++) {
+            if (on.item(k) instanceof Element && "Offset".equals(on.item(k).getNodeName())) {
+                String txt = on.item(k).getTextContent().trim();
+                try {
+                    o.add(parseHex(txt));
+                } catch (Exception ex) {
+                    if (e.why == null) e.why = "offset \"" + txt + "\" (not supported)";
+                }
+            }
+        }
+        long[] out = new long[o.size()];
+        for (int k = 0; k < o.size(); k++) out[k] = o.get(k);
+        return out;
+    }
+
+    private static boolean isRelative(String addr) {
+        String a = addr == null ? "" : addr.trim();
+        return a.startsWith("+") || a.startsWith("-");
+    }
+
+    /** Can this entry give its children an address? */
+    private static boolean hasBase(Entry p) {
+        if (p == null || p.address == null || p.address.isEmpty() || p.why != null) return false;
+        if (unsupportedSymbol(p.address) != null) return false;
+        return !p.relative || hasBase(p.parent);
     }
 
     static BhTrainer.Type type(String vt) {
@@ -325,6 +359,7 @@ public final class BhCheatTable {
             Long r = evalTerm(p, t, pos);
             return r == null ? null : -r;
         }
+        if ("+".equals(tok)) return evalTerm(p, t, pos);
         if (isModule(tok)) return moduleBase(p, tok);
         try {
             return parseHex(tok);
@@ -335,6 +370,7 @@ public final class BhCheatTable {
 
     static long parseHex(String s) {
         s = s.trim();
+        if (s.startsWith("-")) return -parseHex(s.substring(1));
         if (s.startsWith("$")) s = s.substring(1);
         if (s.startsWith("0x") || s.startsWith("0X")) s = s.substring(2);
         if (s.isEmpty()) throw new NumberFormatException("empty");
@@ -344,8 +380,19 @@ public final class BhCheatTable {
     /** The address of an entry's value right now, or null. */
     static Long resolve(int p, Entry e) {
         if (!e.usable() || p < 0) return null;
+        return address(p, e, 0);
+    }
+
+    /** Address of an entry (or of a group, for its children), following parents and offsets. */
+    private static Long address(int p, Entry e, int depth) {
+        if (e == null || e.address == null || e.address.isEmpty() || depth > 32) return null;
         Long a = eval(p, e.address);
         if (a == null) return null;
+        if (e.relative) {
+            Long base = address(p, e.parent, depth + 1);
+            if (base == null) return null;
+            a = base + a;
+        }
         int ps = pointerSize(p);
         for (int i = e.offsets.length - 1; i >= 0; i--) {
             Long ptr = BhTrainer.readPointer(p, a, ps);
@@ -411,7 +458,7 @@ public final class BhCheatTable {
     static synchronized int pointerSize(int p) {
         checkPid(p);
         if (pointerSize != 0) return pointerSize;
-        int size = 8;
+        int size = 0;
         String exe = exeName(p);
         Long base = exe == null ? null : moduleBase(p, exe);
         if (base != null) {
@@ -425,6 +472,7 @@ public final class BhCheatTable {
                 }
             }
         }
+        if (size == 0) return 8; // not readable yet (game still loading): ask again next time
         pointerSize = size;
         return size;
     }
@@ -462,6 +510,7 @@ public final class BhCheatTable {
     static synchronized void setFrozen(Entry e, boolean frozen, double value) {
         e.frozen = frozen;
         e.frozenValue = value;
+        e.frozenPid = frozen ? BhTrainer.gamePid() : 0;
         if (frozen) startFreezer();
     }
 
@@ -474,8 +523,15 @@ public final class BhCheatTable {
         freezer = new Thread(() -> {
             while (true) {
                 List<Entry> frozen = new ArrayList<>();
+                int pid = BhTrainer.gamePid();
+                String id = BhPlayTime.currentGameId();
                 synchronized (BhCheatTable.class) {
-                    for (Entry e : entries) if (e.frozen) frozen.add(e);
+                    for (Entry e : entries) {
+                        if (!e.frozen) continue;
+                        // Never write into another game, or a new run of it.
+                        if (e.frozenPid != pid || id == null || !id.equals(gameId)) e.frozen = false;
+                        else frozen.add(e);
+                    }
                     if (frozen.isEmpty()) {
                         freezer = null;
                         return;

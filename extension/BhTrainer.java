@@ -72,6 +72,7 @@ public final class BhTrainer {
         public Type type;
         public boolean frozen;
         public double frozenValue;
+        int frozenPid;
     }
 
     public interface Progress {
@@ -307,6 +308,15 @@ public final class BhTrainer {
 
     /** Narrows the results: EXACT (value), DECREASED, INCREASED, CHANGED, UNCHANGED. */
     static void nextScan(Scan kind, double value, Progress progress) throws Exception {
+        nextScan(kind, value, progress, false);
+    }
+
+    /**
+     * Like {@link #nextScan}; with keepIfEmpty, a list scan that would leave
+     * nothing keeps the previous results instead (for the Health finder's
+     * automatic "unchanged" pass, which must not throw away the real value).
+     */
+    static void nextScan(Scan kind, double value, Progress progress, boolean keepIfEmpty) throws Exception {
         if (kind == Scan.UNKNOWN) throw new IllegalArgumentException("Unknown value is a new search");
         int p = gamePid();
         if (p < 0) throw new IllegalStateException("No game is running");
@@ -314,7 +324,7 @@ public final class BhTrainer {
         boolean wasSnapshot = snapshotMode;
         try {
             if (wasSnapshot) snapshotCompare(p, kind, value, progress);
-            else listCompare(p, kind, value, progress);
+            else listCompare(p, kind, value, progress, keepIfEmpty);
         } catch (Throwable e) {
             if (wasSnapshot) {
                 // The files may be half updated: their values can't be trusted.
@@ -572,7 +582,8 @@ public final class BhTrainer {
         Log.i(TAG, "snapshot scan " + kind + ": " + kept + (listOk ? " (list)" : " (snapshot)"));
     }
 
-    private static void listCompare(int p, Scan kind, double value, Progress progress) throws Exception {
+    private static void listCompare(int p, Scan kind, double value, Progress progress, boolean keepIfEmpty)
+            throws Exception {
         Type t = type;
         int[] in;
         double[] was;
@@ -613,6 +624,10 @@ public final class BhTrainer {
                 i = j;
                 if (progress != null) progress.onProgress((int) ((long) i * 100 / n));
             }
+        }
+        if (kept == 0 && keepIfEmpty) {
+            Log.i(TAG, "next scan " + kind + ": would leave none, kept the " + n + " results");
+            return;
         }
         synchronized (BhTrainer.class) {
             results = out;
@@ -772,6 +787,7 @@ public final class BhTrainer {
     static synchronized void setFrozen(Entry e, boolean frozen, double value) {
         e.frozen = frozen;
         e.frozenValue = value;
+        e.frozenPid = frozen ? gamePid() : 0;
         if (frozen) startFreezer();
     }
 
@@ -784,8 +800,14 @@ public final class BhTrainer {
         freezer = new Thread(() -> {
             while (true) {
                 List<Entry> frozen = new ArrayList<>();
+                int now = gamePid();
                 synchronized (BhTrainer.class) {
-                    for (Entry e : entries) if (e.frozen) frozen.add(e);
+                    for (Entry e : entries) {
+                        if (!e.frozen) continue;
+                        // Never write into another game, or a new run of it: addresses differ.
+                        if (e.frozenPid != now) e.frozen = false;
+                        else frozen.add(e);
+                    }
                     if (frozen.isEmpty()) {
                         freezer = null;
                         return;

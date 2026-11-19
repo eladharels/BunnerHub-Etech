@@ -46,7 +46,7 @@ public final class BhTrainerPanel {
     private static EditText valueInput;
     private static Button typeButton, nextButton, finderType, lockAll;
     private static LinearLayout tableBox;
-    private static boolean tableReading;
+    private static boolean tableReading, tableLoading;
     private static final java.util.concurrent.ExecutorService io =
             java.util.concurrent.Executors.newSingleThreadExecutor();
     private static final List<Button> compareButtons = new java.util.ArrayList<>();
@@ -104,7 +104,7 @@ public final class BhTrainerPanel {
         finder.addView(finderHelp, margins(0, 2, 0, 8));
         LinearLayout startRow = new LinearLayout(ctx);
         Button start = button("Start", true);
-        start.setOnClickListener(v -> runScan(BhTrainer.Scan.UNKNOWN, false));
+        start.setOnClickListener(v -> runScan(BhTrainer.Scan.UNKNOWN, false, true));
         finderType = button("", false);
         finderType.setOnClickListener(v -> {
             BhTrainer.Type next = BhTrainer.type() == BhTrainer.Type.FLOAT ? BhTrainer.Type.INT32 : BhTrainer.Type.FLOAT;
@@ -128,7 +128,7 @@ public final class BhTrainerPanel {
         lostRow.addView(gained, weightMargins(1f, 8));
         finder.addView(lostRow, margins(0, 8, 0, 0));
         Button same = button("Health didn't change", false);
-        same.setOnClickListener(v -> runScan(BhTrainer.Scan.UNCHANGED, true));
+        same.setOnClickListener(v -> runScan(BhTrainer.Scan.UNCHANGED, true, true));
         finder.addView(same, margins(0, 8, 0, 0));
         compareButtons.add(lost);
         compareButtons.add(gained);
@@ -177,6 +177,11 @@ public final class BhTrainerPanel {
         buttons.addView(nextButton, weightMargins(1f, 8));
         buttons.addView(reset, wrapLeft(8));
         search.addView(buttons, margins(0, 10, 0, 0));
+        // Compared with the last search (no number needed), for any kind of value.
+        search.addView(compareRow(BhTrainer.Scan.DECREASED, "Decreased", BhTrainer.Scan.INCREASED, "Increased"),
+                margins(0, 8, 0, 0));
+        search.addView(compareRow(BhTrainer.Scan.CHANGED, "Changed", BhTrainer.Scan.UNCHANGED, "Unchanged"),
+                margins(0, 8, 0, 0));
 
         // ── Results (both kinds of search) ──
         LinearLayout res = card();
@@ -205,7 +210,8 @@ public final class BhTrainerPanel {
                 + "Health finder: heal to full, tap Start, then each time you lose or gain health tap the "
                 + "matching button (it also drops values that keep changing by themselves). When 10 or fewer "
                 + "are left, heal to full and tap Lock all. Nothing found? Switch Float / 4 bytes and Start again. "
-                + "If your health regenerates by itself, wait until it stops before tapping.\n"
+                + "If your health regenerates or drains by itself (poison, an animated bar), wait until it "
+                + "stops before tapping.\n"
                 + "Search by number: type a value you see (e.g. your XP), New search; change it in the game, "
                 + "type the new value, Next search; repeat. Tap a result to set or save it.\n"
                 + "Start saves a copy of the game's memory (a few hundred MB of app storage) until the "
@@ -214,7 +220,17 @@ public final class BhTrainerPanel {
                 + "Single-player games only.");
         root.addView(help, margins(0, 18, 0, 0));
 
-        BhCheatTable.attach(context.getApplicationContext());
+        tableLoading = true;
+        io.execute(() -> {
+            try {
+                BhCheatTable.attach(context.getApplicationContext());
+            } finally {
+                ui.post(() -> {
+                    tableLoading = false;
+                    showTable();
+                });
+            }
+        });
         updateTypeLabels();
         updateGameLine();
         showTable();
@@ -247,6 +263,19 @@ public final class BhTrainerPanel {
         showResults();
     }
 
+    private static LinearLayout compareRow(BhTrainer.Scan a, String aLabel, BhTrainer.Scan b, String bLabel) {
+        LinearLayout row = new LinearLayout(ctx);
+        Button ba = button(aLabel, false);
+        ba.setOnClickListener(v -> runScan(a, true));
+        Button bb = button(bLabel, false);
+        bb.setOnClickListener(v -> runScan(b, true));
+        row.addView(ba, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(bb, weightMargins(1f, 8));
+        compareButtons.add(ba);
+        compareButtons.add(bb);
+        return row;
+    }
+
     private static void updateTypeLabels() {
         BhTrainer.Type t = BhTrainer.type();
         if (typeButton != null) typeButton.setText(t.label);
@@ -274,7 +303,7 @@ public final class BhTrainerPanel {
                 if (BhTrainer.resultCount() > 1) {
                     Thread.sleep(500);
                     ui.post(() -> status.setText("Dropping values that change by themselves…"));
-                    BhTrainer.nextScan(BhTrainer.Scan.UNCHANGED, 0, p);
+                    BhTrainer.nextScan(BhTrainer.Scan.UNCHANGED, 0, p, true);
                 }
             } catch (Throwable t) {
                 error = t.getMessage() != null ? t.getMessage() : t.toString();
@@ -283,15 +312,15 @@ public final class BhTrainerPanel {
             ui.post(() -> {
                 busy = false;
                 if (err != null) status.setText("Search failed: " + err);
-                else afterScan();
+                else afterScan(true);
                 updateGameLine();
             });
         }, "BhTrainerGuided").start();
     }
 
-    /** Shows the results; with none left as Float, offers 4 bytes next. */
-    private static void afterScan() {
-        if (BhTrainer.scanned() && BhTrainer.resultCount() == 0 && BhTrainer.type() == BhTrainer.Type.FLOAT
+    /** Shows the results; in the Health finder, with none left as Float, offers 4 bytes next. */
+    private static void afterScan(boolean finder) {
+        if (finder && BhTrainer.scanned() && BhTrainer.resultCount() == 0 && BhTrainer.type() == BhTrainer.Type.FLOAT
                 && BhTrainer.setType(BhTrainer.Type.INT32)) {
             updateTypeLabels();
             showResults();
@@ -307,9 +336,12 @@ public final class BhTrainerPanel {
         long n = BhTrainer.resultCount();
         if (n < 1 || n > LOCK_ALL_MAX) return;
         BhTrainer.Type t = BhTrainer.type();
+        java.util.Set<Long> saved = new java.util.HashSet<>();
+        for (BhTrainer.Entry e : BhTrainer.entries()) if (e.type == t) saved.add(e.address);
         int locked = 0;
         for (int i = 0; i < (int) n; i++) {
             long addr = BhTrainer.result(i);
+            if (saved.contains(addr)) continue; // already locked
             Double now = BhTrainer.read(addr, t);
             if (now == null) continue;
             BhTrainer.Entry e = BhTrainer.addEntry(ctx.getApplicationContext(),
@@ -317,8 +349,9 @@ public final class BhTrainerPanel {
             BhTrainer.setFrozen(e, true, now);
             locked++;
         }
-        toast(locked == 0 ? "Could not read the values" : "Locked " + locked + (locked == 1 ? " value" : " values")
+        toast(locked == 0 ? "Already locked (see Saved values)" : "Locked " + locked + (locked == 1 ? " value" : " values")
                 + ". If the game acts strangely, unfreeze the extra ones in Saved values.");
+        lockAll.setVisibility(View.GONE);
         showSaved();
     }
 
@@ -327,6 +360,18 @@ public final class BhTrainerPanel {
     private static void showTable() {
         if (tableBox == null) return;
         tableBox.removeAllViews();
+        if (tableLoading) {
+            TextView wait = text(12, GREY, false);
+            wait.setText("Loading…");
+            tableBox.addView(wait);
+            return;
+        }
+        if (BhPlayTime.currentGameId() == null) {
+            TextView none = text(12, GREY, false);
+            none.setText("No game running.");
+            tableBox.addView(none);
+            return;
+        }
         String name = BhCheatTable.tableName();
         if (name == null) {
             TextView none = text(12, GREY, false);
@@ -461,7 +506,7 @@ public final class BhTrainerPanel {
 
     /** Reads the table's values off the UI thread (pointer chains mean several reads each). */
     private static void refreshTable() {
-        if (tableBox == null || tableReading || BhCheatTable.tableName() == null) return;
+        if (tableBox == null || tableReading || tableLoading || BhCheatTable.tableName() == null) return;
         if (!tableBox.isShown()) return;
         tableReading = true;
         List<BhCheatTable.Entry> list = BhCheatTable.entries();
@@ -495,6 +540,10 @@ public final class BhTrainerPanel {
     }
 
     private static void runScan(BhTrainer.Scan kind, boolean next) {
+        runScan(kind, next, false);
+    }
+
+    private static void runScan(BhTrainer.Scan kind, boolean next, boolean finderScan) {
         if (busy) return;
         Double typed = parse(valueInput.getText().toString());
         if (kind == BhTrainer.Scan.EXACT && typed == null) {
@@ -528,7 +577,7 @@ public final class BhTrainerPanel {
             ui.post(() -> {
                 busy = false;
                 if (err != null) status.setText("Search failed: " + err);
-                else afterScan();
+                else afterScan(kind != BhTrainer.Scan.EXACT && finderScan);
                 updateGameLine();
             });
         }, "BhTrainerScan").start();
