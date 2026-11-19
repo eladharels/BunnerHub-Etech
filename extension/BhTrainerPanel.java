@@ -204,9 +204,10 @@ public final class BhTrainerPanel {
         root.addView(savedBox);
 
         TextView help = text(11, GREY, false);
-        help.setText("Cheat table: download a Cheat Engine table (.CT) for this game to your phone's Download "
-                + "folder (or BunnerHub-Etech/tables), tap Import, then tap a cheat to set or freeze it. "
-                + "Value cheats work; script cheats are not supported yet.\n"
+        help.setText("Cheat table: tap Find online (FearLess Revolution, searched for this game; sign in once, "
+                + "then tap a table's download link and it imports by itself), or put a .CT file in Download "
+                + "and tap Import file. Then tap a cheat to set or freeze it. Pick a table for your game's "
+                + "version. Value cheats work; script cheats are not supported yet.\n"
                 + "Health finder: heal to full, tap Start, then each time you lose or gain health tap the "
                 + "matching button (it also drops values that keep changing by themselves). When 10 or fewer "
                 + "are left, heal to full and tap Lock all. Nothing found? Switch Float / 4 bytes and Start again. "
@@ -375,12 +376,17 @@ public final class BhTrainerPanel {
         String name = BhCheatTable.tableName();
         if (name == null) {
             TextView none = text(12, GREY, false);
-            none.setText("No table for this game. Download a Cheat Engine table (.CT) for it to your phone, "
-                    + "then tap Import.");
+            none.setText("No table for this game. Find online opens FearLess Revolution searched for this game: "
+                    + "sign in once and tap a table's download link. Or import a .CT file you downloaded.");
             tableBox.addView(none);
-            Button imp = button("Import table", true);
+            LinearLayout row = new LinearLayout(ctx);
+            Button find = button("Find online", true);
+            find.setOnClickListener(v -> findOnline());
+            Button imp = button("Import file", false);
             imp.setOnClickListener(v -> importDialog());
-            tableBox.addView(imp, margins(0, 8, 0, 0));
+            row.addView(find, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(imp, weightMargins(1f, 8));
+            tableBox.addView(row, margins(0, 8, 0, 0));
             return;
         }
         LinearLayout head = new LinearLayout(ctx);
@@ -398,6 +404,9 @@ public final class BhTrainerPanel {
                 })
                 .setNegativeButton("Cancel", null)
                 .show());
+        Button other = button("Find online", false);
+        other.setOnClickListener(v -> findOnline());
+        head.addView(other, wrapLeft(8));
         head.addView(remove, wrapLeft(8));
         tableBox.addView(head);
         int usable = 0;
@@ -424,6 +433,17 @@ public final class BhTrainerPanel {
             tableBox.addView(note, margins(0, 8, 0, 0));
         }
         refreshTable();
+    }
+
+    private static void findOnline() {
+        if (BhPlayTime.currentGameId() == null) {
+            toast("No game running");
+            return;
+        }
+        BhCheatBrowser.show(ctx, msg -> {
+            toast(msg);
+            showTable();
+        });
     }
 
     private static void importDialog() {

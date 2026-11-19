@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Trainer: find cheat tables online from the game (2026-11-19)
+Request: find a `.CT` on the website from inside the app and import it directly.
+- `extension/BhCheatBrowser.java`: **Find online** in the Cheat table card opens a full-screen `Dialog` with a `WebView` over the game, on `fearlessrevolution.com/search.php?sr=topics&keywords=<game name>` (™®©: stripped). An ordinary browser: the user signs in once (cookies kept, `CookieManager.flush()` on close); only http(s) navigation. A page download (`DownloadListener`, e.g. phpBB `download/file.php?id=…`) is fetched with the browser's cookies and user agent over https (≤ 32 MB); a table (`<CheatTable` in the first 4 KB) or the tables in a `.zip` are saved to `/sdcard/BunnerHub-Etech/tables/` and the newest-looking one is imported with `BhCheatTable.importTable`; HTML (signed out), `.CETRAINER` and `.exe` get clear messages. The `:wine` process gets its own WebView data directory (`WebView.setDataDirectorySuffix("bh_wine")`), since the main process already uses WebView.
+- Checked locally: search URL, zip extraction (skips non-tables), table detection, safe file names. FearLess itself is not reachable from the build machine; not yet device-tested.
+
 ### [feat] — Trainer: Cheat Engine tables and a guided Health finder (2026-11-19)
 Device report: the manual unknown-value search worked but was too much work on a phone. Roadmap item 8, steps 3 and 4.
 - `extension/BhCheatTable.java`: imports `.CT` files (XML, DOM parser with doctype disabled) from `Download/` or `/sdcard/BunnerHub-Etech/tables/` per game (copied to `files/bh_tables/<gameId>.ct`). Value entries: types 4/2/8 bytes, byte, float, double; address expressions with hex, module names (`"game.exe"+X`, base = lowest mapping of that file in `/proc/<pid>/maps`, image-base guesses for the main exe) and `[...]` pointer reads; `<Offsets>` applied Cheat Engine style (offsets[0] last). Pointer size from the exe's PE machine type (0x14C → 4, else 8). Group headers shown as headings. Scripts, script symbols and other types are listed as unusable with the reason. Frozen entries are re-resolved and rewritten every 100 ms.
