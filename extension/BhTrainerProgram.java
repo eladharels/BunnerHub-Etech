@@ -46,8 +46,14 @@ public final class BhTrainerProgram {
     private static final long AUTOSTART_DELAY_MS = 8000;
     private static final long AUTOSTART_GIVE_UP_MS = 180_000;
 
-    private static int autostartedFor = -1; // game pid the trainer was auto-started for
+    private static final long START_GRACE_MS = 30_000;
+    /** A command line running an .exe from our copy folder (drive_c/bh_trainer or C:\\bh_trainer). */
+    private static final java.util.regex.Pattern TRAINER_CMD =
+            java.util.regex.Pattern.compile("(?i)[/\\\\]bh_trainer[/\\\\][^\\x00]*\\.exe");
+
+    private static volatile int autostartedFor = -1; // game pid the trainer was auto-started for
     private static boolean waiting;
+    private static long startedAt;                   // last start(), for the grace period below
 
     private BhTrainerProgram() {}
 
@@ -79,9 +85,9 @@ public final class BhTrainerProgram {
         if (gameId != null) prefs(ctx).edit().putBoolean("auto_" + gameId, on).apply();
     }
 
-    static void remove(Context ctx, String gameId) {
+    static synchronized void remove(Context ctx, String gameId) {
         if (gameId == null) return;
-        stop();
+        stopAll();
         deleteTree(dir(gameId));
         prefs(ctx).edit().remove("exe_" + gameId).remove("auto_" + gameId).apply();
     }
@@ -108,7 +114,7 @@ public final class BhTrainerProgram {
         return out;
     }
 
-    static String install(Context ctx, File src) throws Exception {
+    static synchronized String install(Context ctx, File src) throws Exception {
         if (src.length() > 64L << 20) throw new IllegalStateException("File too large for a trainer");
         byte[] data = new byte[(int) src.length()];
         try (InputStream in = new FileInputStream(src)) {
@@ -123,7 +129,7 @@ public final class BhTrainerProgram {
     }
 
     /** A downloaded trainer (.exe, or a .zip holding one): keep it for the current game. */
-    static String install(Context ctx, byte[] data, String fileName) throws Exception {
+    static synchronized String install(Context ctx, byte[] data, String fileName) throws Exception {
         String id = BhPlayTime.currentGameId();
         if (id == null) throw new IllegalStateException("No game is running");
         String lower = fileName.toLowerCase(Locale.US);
@@ -146,7 +152,7 @@ public final class BhTrainerProgram {
             deleteTree(staging);
             throw e;
         }
-        stop();
+        stopAll();
         deleteTree(dir(id));
         if (!staging.renameTo(dir(id))) throw new IllegalStateException("Cannot save the trainer");
         prefs(ctx).edit().putString("exe_" + id, exeName).apply();
@@ -188,7 +194,8 @@ public final class BhTrainerProgram {
         String best = null;
         long bestSize = -1;
         for (String n : exes) {
-            if (n.toLowerCase(Locale.US).contains("trainer")) return n;
+            String file = n.substring(n.lastIndexOf('/') + 1).toLowerCase(Locale.US);
+            if (file.contains("trainer")) return n;
             long size = new File(into, n).length();
             if (size > bestSize) {
                 bestSize = size;
@@ -205,12 +212,14 @@ public final class BhTrainerProgram {
     // ── Running it ───────────────────────────────────────────────────────────
 
     /** Copies the trainer into the game's Wine prefix and starts it there. */
-    static String start(Context ctx) throws Exception {
+    static synchronized String start(Context ctx) throws Exception {
         String id = BhPlayTime.currentGameId();
         File exe = exe(ctx, id);
         if (exe == null) throw new IllegalStateException("No trainer for this game");
         if (BhTrainer.gamePid() < 0) throw new IllegalStateException("Start the game first");
         if (runningPid(ctx) > 0) return "The trainer is already running";
+        // Wine takes a few seconds to show the process: don't start (and re-copy) twice.
+        if (System.currentTimeMillis() - startedAt < START_GRACE_MS) return "The trainer is already starting";
         String prefix = BhWineLaunchHelper.getWinePrefix();
         if (prefix == null) throw new IllegalStateException("Can't find the game's Wine");
         File dst = new File(prefix, "drive_c/bh_trainer");
@@ -220,30 +229,56 @@ public final class BhTrainerProgram {
         File target = new File(dst, rel);
         if (!target.isFile()) throw new IllegalStateException("Copying the trainer failed");
         BhWineLaunchHelper.launchExe(ctx, target.getAbsolutePath());
+        startedAt = System.currentTimeMillis();
         Log.i(TAG, "started " + target);
         return "Starting " + exe.getName() + "…";
     }
 
     /** Pid of the running trainer, or -1. */
     static int runningPid(Context ctx) {
-        File exe = exe(ctx, BhPlayTime.currentGameId());
-        if (exe == null) return -1;
-        String name = exe.getName().toLowerCase(Locale.US);
-        File[] procs = new File("/proc").listFiles();
-        if (procs == null) return -1;
-        for (File p : procs) {
-            if (!p.getName().matches("\\d+")) continue;
-            String cmd = cmdline(p);
-            if (cmd != null && cmd.toLowerCase(Locale.US).contains(name)) return Integer.parseInt(p.getName());
-        }
-        return -1;
+        List<Integer> p = pids();
+        return p.isEmpty() ? -1 : p.get(0);
     }
 
-    static void stop() {
-        Context ctx = currentApp();
-        if (ctx == null) return;
-        int pid = runningPid(ctx);
-        if (pid > 0) android.os.Process.killProcess(pid);
+    /** True while a start is in its grace period and the trainer hasn't shown up yet. */
+    static synchronized boolean starting() {
+        return System.currentTimeMillis() - startedAt < START_GRACE_MS && pids().isEmpty();
+    }
+
+    /** Every process started from the trainer's copy (Wine and FEX can make several). */
+    static List<Integer> pids() {
+        List<Integer> out = new ArrayList<>();
+        File[] procs = new File("/proc").listFiles();
+        if (procs == null) return out;
+        int self = android.os.Process.myPid();
+        for (File p : procs) {
+            if (!p.getName().matches("\\d+")) continue;
+            int pid = Integer.parseInt(p.getName());
+            if (pid == self) continue;
+            String cmd = cmdline(p);
+            if (cmd != null && TRAINER_CMD.matcher(cmd).find()) out.add(pid);
+        }
+        return out;
+    }
+
+    /** Stops the trainer. Throws if it's still running afterwards. */
+    static synchronized void stop() throws Exception {
+        stopAll();
+        if (!pids().isEmpty()) throw new IllegalStateException("The trainer is still running");
+    }
+
+    private static void stopAll() {
+        startedAt = 0;
+        for (int round = 0; round < 3; round++) {
+            List<Integer> p = pids();
+            if (p.isEmpty()) return;
+            for (int pid : p) android.os.Process.killProcess(pid);
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException ignored) {
+                return;
+            }
+        }
     }
 
     // ── Auto-start ───────────────────────────────────────────────────────────
@@ -329,15 +364,6 @@ public final class BhTrainerProgram {
             byte[] buf = new byte[1024];
             int n = in.read(buf);
             return n <= 0 ? null : new String(buf, 0, n).replace('\0', ' ');
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static Context currentApp() {
-        try {
-            Class<?> at = Class.forName("android.app.ActivityThread");
-            return (Context) at.getMethod("currentApplication").invoke(null);
         } catch (Throwable t) {
             return null;
         }

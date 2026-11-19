@@ -110,7 +110,7 @@ public final class BhTrainer {
             if (!p.getName().matches("\\d+")) continue;
             String cmd = cmdline(p);
             if (cmd == null || !cmd.toLowerCase(Locale.ROOT).contains(".exe")) continue;
-            boolean system = false;
+            boolean system = cmd.toLowerCase(Locale.ROOT).contains("bh_trainer"); // our trainer program
             for (String s : SYSTEM_EXES) if (cmd.toLowerCase(Locale.ROOT).contains(s)) system = true;
             if (system) continue;
             long rss = rssPages(p);

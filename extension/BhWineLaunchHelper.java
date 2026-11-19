@@ -141,7 +141,21 @@ public class BhWineLaunchHelper {
                     return;
                 }
                 String[] env = getWineEnviron();
-                Runtime.getRuntime().exec(new String[]{wineBin, exePath}, env, null);
+                ProcessBuilder pb = new ProcessBuilder(wineBin, exePath);
+                if (env != null) {
+                    pb.environment().clear();
+                    for (String kv : env) {
+                        int eq = kv.indexOf('=');
+                        if (eq > 0) pb.environment().put(kv.substring(0, eq), kv.substring(eq + 1));
+                    }
+                }
+                // Nobody reads the program's output: send it nowhere, or a long-running
+                // program (a trainer) blocks once the pipe buffer is full.
+                File devNull = new File("/dev/null");
+                pb.redirectOutput(ProcessBuilder.Redirect.to(devNull));
+                pb.redirectError(ProcessBuilder.Redirect.to(devNull));
+                pb.redirectInput(ProcessBuilder.Redirect.from(devNull));
+                pb.start();
             } catch (Exception e) {
                 showToast(ctx, "Launch error: " + e.getMessage());
             }

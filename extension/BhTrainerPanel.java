@@ -48,7 +48,19 @@ public final class BhTrainerPanel {
     private static LinearLayout tableBox, programBox;
     private static TextView programStatus;
     private static Button programStartStop;
-    private static boolean programChecking;
+    private static boolean programChecking, programBusy, programRefocus;
+
+    private static View firstFocusable(android.view.ViewGroup g) {
+        for (int i = 0; i < g.getChildCount(); i++) {
+            View c = g.getChildAt(i);
+            if (c.isFocusable() && c.isEnabled() && c instanceof Button) return c;
+            if (c instanceof android.view.ViewGroup) {
+                View f = firstFocusable((android.view.ViewGroup) c);
+                if (f != null) return f;
+            }
+        }
+        return null;
+    }
     private static boolean tableReading, tableLoading;
     private static final java.util.concurrent.ExecutorService io =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -374,6 +386,14 @@ public final class BhTrainerPanel {
 
     private static void showProgram() {
         if (programBox == null) return;
+        // Rebuilding drops the focused button: put controller focus back in the card.
+        boolean refocus = programBox.hasFocus() || programRefocus;
+        programRefocus = false;
+        if (refocus) programBox.post(() -> {
+            if (programBox == null) return;
+            View first = programBox.findFocus() != null ? null : firstFocusable(programBox);
+            if (first != null) first.requestFocus();
+        });
         programBox.removeAllViews();
         programStatus = null;
         programStartStop = null;
@@ -412,8 +432,9 @@ public final class BhTrainerPanel {
         programStartStop.setOnClickListener(v -> programStartOrStop());
         Button auto = button(BhTrainerProgram.autostart(ctx, id) ? "Starts with game: ON" : "Starts with game: OFF", false);
         auto.setOnClickListener(v -> {
-            BhTrainerProgram.setAutostart(ctx, id, !BhTrainerProgram.autostart(ctx, id));
-            showProgram();
+            boolean on = !BhTrainerProgram.autostart(ctx, id);
+            BhTrainerProgram.setAutostart(ctx, id, on);
+            auto.setText(on ? "Starts with game: ON" : "Starts with game: OFF"); // in place: keeps focus
         });
         row.addView(programStartStop, new LinearLayout.LayoutParams(0, -2, 1f));
         row.addView(auto, weightMargins(1f, 8));
@@ -428,7 +449,10 @@ public final class BhTrainerPanel {
                 .setMessage(exe.getName())
                 .setPositiveButton("Remove", (d, w) -> io.execute(() -> {
                     BhTrainerProgram.remove(ctx.getApplicationContext(), id);
-                    ui.post(BhTrainerPanel::showProgram);
+                    ui.post(() -> {
+                        programRefocus = true;
+                        showProgram();
+                    });
                 }))
                 .setNegativeButton("Cancel", null)
                 .show());
@@ -438,32 +462,40 @@ public final class BhTrainerPanel {
 
         TextView note = text(11, GREY, false);
         note.setText("The trainer's window opens over the game: switch cheats there, then close this menu. "
-                + "Tell us which cheats work: that decides the next step (switches right here).");
+                + "Cheats that change values usually work; some others may not work under emulation.");
         programBox.addView(note, margins(0, 8, 0, 0));
         refreshProgram();
     }
 
     /** Running or not (scans processes, so off the UI thread). */
     private static void refreshProgram() {
-        if (programStatus == null || programChecking || !programStatus.isShown()) return;
+        if (programStatus == null || programChecking || programBusy || !programStatus.isShown()) return;
         programChecking = true;
         Context app = ctx.getApplicationContext();
         io.execute(() -> {
             int pid = BhTrainerProgram.runningPid(app);
+            boolean starting = pid < 0 && BhTrainerProgram.starting();
             ui.post(() -> {
                 programChecking = false;
-                if (programStatus == null || programStartStop == null) return;
-                programStatus.setText(pid > 0 ? "Running" : "Not running");
+                if (programStatus == null || programStartStop == null || programBusy) return;
+                programStatus.setText(pid > 0 ? "Running" : starting ? "Starting… (its window appears in a few seconds)"
+                        : "Not running");
                 programStartStop.setText(pid > 0 ? "Stop" : "Start");
                 programStartStop.setTag(pid > 0);
+                programStartStop.setEnabled(!starting);
+                programStartStop.setAlpha(starting ? 0.4f : 1f);
             });
         });
     }
 
     private static void programStartOrStop() {
+        if (programBusy || programStartStop == null) return;
         boolean running = Boolean.TRUE.equals(programStartStop.getTag());
         Context app = ctx.getApplicationContext();
-        programStatus.setText(running ? "Stopping…" : "Starting…");
+        programBusy = true;
+        programStartStop.setEnabled(false);
+        programStartStop.setAlpha(0.4f);
+        programStatus.setText(running ? "Stopping…" : "Starting… (its window appears in a few seconds)");
         io.execute(() -> {
             String msg;
             try {
@@ -474,14 +506,27 @@ public final class BhTrainerPanel {
                     msg = BhTrainerProgram.start(app);
                 }
             } catch (Throwable t) {
-                msg = "Couldn't start: " + (t.getMessage() != null ? t.getMessage() : t.toString());
+                msg = (running ? "Couldn't stop: " : "Couldn't start: ")
+                        + (t.getMessage() != null ? t.getMessage() : t.toString());
             }
             String m = msg;
             ui.post(() -> {
+                programBusy = false;
                 toast(m);
-                ui.postDelayed(BhTrainerPanel::refreshProgram, 1500);
+                refreshProgram(); // shows "Starting…" with the button disabled until the trainer appears
             });
         });
+    }
+
+    private static String installedMessage(String saved) {
+        String id = BhPlayTime.currentGameId();
+        return saved + (BhTrainerProgram.autostart(ctx, id)
+                ? ". It starts with the game; tap Start to run it now."
+                : ". Tap Start to run it.");
+    }
+
+    private static void toastLong(String s) {
+        if (ctx != null) Toast.makeText(ctx, s, Toast.LENGTH_LONG).show();
     }
 
     private static void programFindOnline() {
@@ -493,7 +538,8 @@ public final class BhTrainerPanel {
                 "Find a trainer for this game, then tap its download link",
                 BhTrainerProgram::install,
                 msg -> {
-                    toast(msg + ". It starts with the game; tap Start to run it now.");
+                    toastLong(installedMessage(msg));
+                    programRefocus = true;
                     showProgram();
                 });
     }
@@ -515,13 +561,14 @@ public final class BhTrainerPanel {
                 .setItems(names, (d, which) -> io.execute(() -> {
                     String msg;
                     try {
-                        msg = BhTrainerProgram.install(ctx.getApplicationContext(), files.get(which));
+                        msg = installedMessage(BhTrainerProgram.install(ctx.getApplicationContext(), files.get(which)));
                     } catch (Throwable t) {
                         msg = "Couldn't use it: " + (t.getMessage() != null ? t.getMessage() : t.toString());
                     }
                     String m = msg;
                     ui.post(() -> {
-                        toast(m);
+                        toastLong(m);
+                        programRefocus = true;
                         showProgram();
                     });
                 }))
