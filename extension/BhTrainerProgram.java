@@ -187,8 +187,9 @@ public final class BhTrainerProgram {
             } else if (isPeExe(data)) {
                 exeName = BhCheatBrowser.safeName(lower.endsWith(".exe") ? fileName : fileName + ".exe");
                 write(new File(staging, exeName), data);
-            } else if (lower.endsWith(".rar") || lower.endsWith(".7z")) {
-                throw new IllegalStateException(fileName + " is a .rar/.7z archive; only .zip and .exe are supported");
+            } else if (BhCheatBrowser.isRarOr7z(data) || lower.endsWith(".rar") || lower.endsWith(".7z")) {
+                exeName = extractWithWine(data, lower.endsWith(".7z") || (data.length > 1 && data[0] == 0x37)
+                        ? "archive.7z" : "archive.rar", staging);
             } else {
                 throw new IllegalStateException(fileName + " is not a trainer (.exe or .zip)");
             }
@@ -234,7 +235,12 @@ public final class BhTrainerProgram {
             }
         }
         if (exes.isEmpty()) throw new IllegalStateException("The zip has no .exe");
-        // Prefer a name that says trainer; else the largest.
+        return chooseExe(into, exes);
+    }
+
+    /** The trainer among the .exe files (relative paths under root): named like one, else the largest. */
+    static String chooseExe(File root, List<String> exes) {
+        File into = root;
         String best = null;
         long bestSize = -1;
         for (String n : exes) {
@@ -427,6 +433,101 @@ public final class BhTrainerProgram {
         }, "BhTrainerWatch").start();
     }
 
+    // ── .rar / .7z trainers (7-Zip inside the game's Wine) ───────────────────
+    //
+    // Android can only unpack zip. Older FLiNG trainers come as .rar, so the
+    // first such download installs 7-Zip (about 2 MB, official .msi) into the
+    // game's prefix with Wine's msiexec, and 7-Zip unpacks it there.
+
+    private static final String SEVEN_ZIP_MSI = "7z2409-x64.msi";
+
+    /** Unpacks a .rar / .7z with 7-Zip in the game's Wine into staging; returns the trainer .exe. */
+    private static String extractWithWine(byte[] data, String archiveName, File staging) throws Exception {
+        String[] argv = gameArgv;
+        String[] env = gameEnv;
+        String prefix = envValue(env, "WINEPREFIX");
+        int wineIdx = wineIndex(argv);
+        if (argv == null || prefix == null || wineIdx < 0) {
+            throw new IllegalStateException("To unpack a .rar the game must be running (started after this update). "
+                    + "Restart the game, then download again.");
+        }
+        File logs = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs");
+        if (!logs.isDirectory()) logs.mkdirs();
+        File log = new File(logs, "extract.log");
+        File sevenZip = new File(prefix, "drive_c/Program Files/7-Zip/7z.exe");
+        if (!sevenZip.isFile()) {
+            File dir = new File(prefix, "drive_c/bh_tools");
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("Cannot create " + dir);
+            File msi = new File(dir, SEVEN_ZIP_MSI);
+            if (!msi.isFile() || msi.length() < 500_000) {
+                Exception last = null;
+                for (String u : new String[]{"https://www.7-zip.org/a/" + SEVEN_ZIP_MSI,
+                        "https://github.com/ip7z/7zip/releases/download/24.09/" + SEVEN_ZIP_MSI}) {
+                    try {
+                        downloadTo(u, msi, text -> { });
+                        last = null;
+                        break;
+                    } catch (Exception e) {
+                        last = e;
+                    }
+                }
+                if (last != null) throw new IllegalStateException("Couldn't download 7-Zip: " + last.getMessage());
+            }
+            runWine(argv, wineIdx, env, log, false, "msiexec", "/i", "C:\\bh_tools\\" + SEVEN_ZIP_MSI, "/qn");
+            if (!sevenZip.isFile()) throw new IllegalStateException("Installing 7-Zip failed; see logs/extract.log");
+        }
+        File work = new File(prefix, "drive_c/bh_trainer_dl");
+        deleteTree(work);
+        if (!work.mkdirs()) throw new IllegalStateException("Cannot create " + work);
+        write(new File(work, archiveName), data);
+        runWine(argv, wineIdx, env, log, true, "C:\\Program Files\\7-Zip\\7z.exe", "x",
+                "C:\\bh_trainer_dl\\" + archiveName, "-oC:\\bh_trainer_dl\\out", "-y");
+        File out = new File(work, "out");
+        List<String> exes = new ArrayList<>();
+        listExes(out, "", exes);
+        if (exes.isEmpty()) {
+            deleteTree(work);
+            throw new IllegalStateException("The archive has no .exe (or 7-Zip couldn't unpack it; see logs/extract.log)");
+        }
+        copyTree(out, staging);
+        deleteTree(work);
+        return chooseExe(staging, exes);
+    }
+
+    private static void listExes(File dir, String rel, List<String> out) {
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File k : kids) {
+            String r = rel.isEmpty() ? k.getName() : rel + "/" + k.getName();
+            if (k.isDirectory()) listExes(k, r, out);
+            else if (k.getName().toLowerCase(Locale.US).endsWith(".exe")) out.add(r);
+        }
+    }
+
+    /** Index of the game's Wine binary ("…/bin/wine…") in its launch command, or -1. */
+    static int wineIndex(String[] argv) {
+        if (argv == null) return -1;
+        int idx = -1;
+        for (int i = 0; i < argv.length; i++) if (argv[i].contains("/bin/wine")) idx = i;
+        return idx;
+    }
+
+    /** Runs a Windows command with the game's Wine and environment and waits (5 min); throws on failure. */
+    private static void runWine(String[] argv, int wineIdx, String[] env, File log, boolean append, String... args)
+            throws Exception {
+        List<String> cmd = new ArrayList<>();
+        for (int i = 0; i <= wineIdx; i++) cmd.add(argv[i]);
+        for (String a : args) cmd.add(a);
+        Process p = launch(cmd.toArray(new String[0]), env, log, append);
+        if (!p.waitFor(5, java.util.concurrent.TimeUnit.MINUTES)) {
+            p.destroy();
+            throw new IllegalStateException(args[0] + " took too long");
+        }
+        if (p.exitValue() != 0) {
+            throw new IllegalStateException(args[0] + " failed (code " + p.exitValue() + "); see logs/" + log.getName());
+        }
+    }
+
     // ── .NET support (Wine Mono) ─────────────────────────────────────────────
     //
     // Some trainers are .NET programs. Wine runs those with Wine Mono, which
@@ -467,8 +568,7 @@ public final class BhTrainerProgram {
         if (argv == null) throw new IllegalStateException("Restart the game once, then try again.");
         String prefix = envValue(env, "WINEPREFIX");
         if (prefix == null) throw new IllegalStateException("Can't find the game's Wine");
-        int wineIdx = -1;
-        for (int i = 0; i < argv.length; i++) if (argv[i].contains("/bin/wine")) wineIdx = i;
+        int wineIdx = wineIndex(argv);
         if (wineIdx < 0) throw new IllegalStateException("Can't find the game's Wine program");
 
         progress.update("Finding the Wine Mono version for this Wine…");

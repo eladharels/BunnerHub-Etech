@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Trainer programs: .rar and .7z trainers via 7-Zip in the game's Wine (2026-11-19)
+- Device report: Sleeping Dogs' trainer imported and its cheats show; Prototype 2's FLiNG trainer is a `.rar` ("Prototype 2 v1.0 Plus 11 Trainer Fixed.rar"), which Android can't unpack.
+- `BhTrainerProgram.extractWithWine`: the first .rar/.7z installs 7-Zip (`7z2409-x64.msi`, from 7-zip.org, else the official ip7z GitHub mirror, into `drive_c/bh_tools/`) into the game's prefix with `msiexec /i … /qn`; then `C:\\Program Files\\7-Zip\\7z.exe x C:\\bh_trainer_dl\\archive.rar -oC:\\bh_trainer_dl\\out -y` with the game's Wine and environment (≤ 5 min each, output in `logs/extract.log`); the .exe is chosen as for zips (`chooseExe`, shared). Needs the game running (its recorded launch command). `installMono` shares `wineIndex`.
+- Checked locally: compiles; zip tests still pass; the GitHub mirror URL answers 200. Not yet device-tested.
+
 ### [feat] — Trainer programs, step 2: cheat switches that press the trainer's keys (2026-11-19)
 - Device logs after the Wine Mono install: no Mono error any more, and the trainer opens a D3D9 device through DXVK, i.e. it runs and draws its window, but the window stays under the game (GameHub presents the game directly, over other Windows windows). FLiNG trainers listen for their hotkeys with the window hidden, so step 2 (the mockup's switch panel) is the way to use them.
 - `extension/BhTrainerKeys.java`: parses cheat lists ("Num 1 – Infinite Health", "Ctrl+Num 1 – Edit Money", "Num + – …", "F1: …"; at least 2 lines, duplicates dropped) into Android key codes; keeps the trainer page's text as `page.txt` next to the trainer; presses keys in the game through `WinUIBridge.e0(KeyEvent)` (→ `XServer.sendKeyEvent`, the path GameHub's own keyboard uses), found by reflection on the WineActivity's WinUIBridge field: modifiers + key down 40 ms apart, then up in reverse.
