@@ -45,7 +45,10 @@ public final class BhTrainerPanel {
     private static Context ctx;
     private static EditText valueInput;
     private static Button typeButton, nextButton, finderType, lockAll;
-    private static LinearLayout tableBox;
+    private static LinearLayout tableBox, programBox;
+    private static TextView programStatus;
+    private static Button programStartStop;
+    private static boolean programChecking;
     private static boolean tableReading, tableLoading;
     private static final java.util.concurrent.ExecutorService io =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -82,9 +85,19 @@ public final class BhTrainerPanel {
         gameLine = text(12, GREY, false);
         root.addView(gameLine, margins(0, 2, 0, 12));
 
+        // ── Trainer program (a ready-made trainer .exe run in the game's Wine) ──
+        LinearLayout program = card();
+        root.addView(program);
+        TextView programTitle = text(14, WHITE, true);
+        programTitle.setText("Trainer program");
+        program.addView(programTitle);
+        programBox = new LinearLayout(ctx);
+        programBox.setOrientation(LinearLayout.VERTICAL);
+        program.addView(programBox, margins(0, 6, 0, 0));
+
         // ── Cheat table (Cheat Engine .CT) ──
         LinearLayout table = card();
-        root.addView(table);
+        root.addView(table, margins(0, 12, 0, 0));
         TextView tableTitle = text(14, WHITE, true);
         tableTitle.setText("Cheat table");
         table.addView(tableTitle);
@@ -234,6 +247,7 @@ public final class BhTrainerPanel {
         });
         updateTypeLabels();
         updateGameLine();
+        showProgram();
         showTable();
         showResults();
         showSaved();
@@ -354,6 +368,165 @@ public final class BhTrainerPanel {
                 + ". If the game acts strangely, unfreeze the extra ones in Saved values.");
         lockAll.setVisibility(View.GONE);
         showSaved();
+    }
+
+    // ── Trainer program ──────────────────────────────────────────────────────
+
+    private static void showProgram() {
+        if (programBox == null) return;
+        programBox.removeAllViews();
+        programStatus = null;
+        programStartStop = null;
+        String id = BhPlayTime.currentGameId();
+        if (id == null) {
+            TextView none = text(12, GREY, false);
+            none.setText("No game running.");
+            programBox.addView(none);
+            return;
+        }
+        java.io.File exe = BhTrainerProgram.exe(ctx, id);
+        if (exe == null) {
+            TextView none = text(12, GREY, false);
+            none.setText("No trainer for this game yet. Find online opens a trainer site searched for this game: "
+                    + "tap its download link once, and from then on it starts with the game.");
+            programBox.addView(none);
+            LinearLayout row = new LinearLayout(ctx);
+            Button find = button("Find online", true);
+            find.setOnClickListener(v -> programFindOnline());
+            Button file = button("Use a file", false);
+            file.setOnClickListener(v -> programPickFile());
+            row.addView(find, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(file, weightMargins(1f, 8));
+            programBox.addView(row, margins(0, 8, 0, 0));
+            return;
+        }
+        TextView name = text(13, WHITE, false);
+        name.setText(exe.getName());
+        programBox.addView(name);
+        programStatus = text(12, GREY, false);
+        programStatus.setText("Checking…");
+        programBox.addView(programStatus, margins(0, 2, 0, 0));
+
+        LinearLayout row = new LinearLayout(ctx);
+        programStartStop = button("Start", true);
+        programStartStop.setOnClickListener(v -> programStartOrStop());
+        Button auto = button(BhTrainerProgram.autostart(ctx, id) ? "Starts with game: ON" : "Starts with game: OFF", false);
+        auto.setOnClickListener(v -> {
+            BhTrainerProgram.setAutostart(ctx, id, !BhTrainerProgram.autostart(ctx, id));
+            showProgram();
+        });
+        row.addView(programStartStop, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(auto, weightMargins(1f, 8));
+        programBox.addView(row, margins(0, 8, 0, 0));
+
+        LinearLayout row2 = new LinearLayout(ctx);
+        Button other = button("Find another", false);
+        other.setOnClickListener(v -> programFindOnline());
+        Button remove = button("Remove", false);
+        remove.setOnClickListener(v -> new AlertDialog.Builder(ctx)
+                .setTitle("Remove this trainer?")
+                .setMessage(exe.getName())
+                .setPositiveButton("Remove", (d, w) -> io.execute(() -> {
+                    BhTrainerProgram.remove(ctx.getApplicationContext(), id);
+                    ui.post(BhTrainerPanel::showProgram);
+                }))
+                .setNegativeButton("Cancel", null)
+                .show());
+        row2.addView(other, new LinearLayout.LayoutParams(0, -2, 1f));
+        row2.addView(remove, weightMargins(1f, 8));
+        programBox.addView(row2, margins(0, 8, 0, 0));
+
+        TextView note = text(11, GREY, false);
+        note.setText("The trainer's window opens over the game: switch cheats there, then close this menu. "
+                + "Tell us which cheats work: that decides the next step (switches right here).");
+        programBox.addView(note, margins(0, 8, 0, 0));
+        refreshProgram();
+    }
+
+    /** Running or not (scans processes, so off the UI thread). */
+    private static void refreshProgram() {
+        if (programStatus == null || programChecking || !programStatus.isShown()) return;
+        programChecking = true;
+        Context app = ctx.getApplicationContext();
+        io.execute(() -> {
+            int pid = BhTrainerProgram.runningPid(app);
+            ui.post(() -> {
+                programChecking = false;
+                if (programStatus == null || programStartStop == null) return;
+                programStatus.setText(pid > 0 ? "Running" : "Not running");
+                programStartStop.setText(pid > 0 ? "Stop" : "Start");
+                programStartStop.setTag(pid > 0);
+            });
+        });
+    }
+
+    private static void programStartOrStop() {
+        boolean running = Boolean.TRUE.equals(programStartStop.getTag());
+        Context app = ctx.getApplicationContext();
+        programStatus.setText(running ? "Stopping…" : "Starting…");
+        io.execute(() -> {
+            String msg;
+            try {
+                if (running) {
+                    BhTrainerProgram.stop();
+                    msg = "Trainer stopped";
+                } else {
+                    msg = BhTrainerProgram.start(app);
+                }
+            } catch (Throwable t) {
+                msg = "Couldn't start: " + (t.getMessage() != null ? t.getMessage() : t.toString());
+            }
+            String m = msg;
+            ui.post(() -> {
+                toast(m);
+                ui.postDelayed(BhTrainerPanel::refreshProgram, 1500);
+            });
+        });
+    }
+
+    private static void programFindOnline() {
+        if (BhPlayTime.currentGameId() == null) {
+            toast("No game running");
+            return;
+        }
+        BhCheatBrowser.show(ctx, BhTrainerProgram.searchUrl(BhPlayTime.currentGameName()),
+                "Find a trainer for this game, then tap its download link",
+                BhTrainerProgram::install,
+                msg -> {
+                    toast(msg + ". It starts with the game; tap Start to run it now.");
+                    showProgram();
+                });
+    }
+
+    private static void programPickFile() {
+        List<java.io.File> files = BhTrainerProgram.pickable();
+        if (files.isEmpty()) {
+            new AlertDialog.Builder(ctx)
+                    .setTitle("No trainers found")
+                    .setMessage("Put the trainer (.exe or .zip) in your phone's Download folder, then try again.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        String[] names = new String[files.size()];
+        for (int i = 0; i < names.length; i++) names[i] = files.get(i).getName();
+        new AlertDialog.Builder(ctx)
+                .setTitle("Use a trainer for this game")
+                .setItems(names, (d, which) -> io.execute(() -> {
+                    String msg;
+                    try {
+                        msg = BhTrainerProgram.install(ctx.getApplicationContext(), files.get(which));
+                    } catch (Throwable t) {
+                        msg = "Couldn't use it: " + (t.getMessage() != null ? t.getMessage() : t.toString());
+                    }
+                    String m = msg;
+                    ui.post(() -> {
+                        toast(m);
+                        showProgram();
+                    });
+                }))
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     // ── Cheat table ──────────────────────────────────────────────────────────
@@ -720,6 +893,7 @@ public final class BhTrainerPanel {
     /** Updates the live values of visible results and saved entries. */
     private static void refreshValues() {
         refreshTable();
+        refreshProgram();
         if (busy) return;
         updateValues(resultsBox);
         updateValues(savedBox);

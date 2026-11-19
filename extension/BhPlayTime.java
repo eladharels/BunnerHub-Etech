@@ -101,6 +101,7 @@ public final class BhPlayTime {
             curName = name instanceof String ? (String) name : null;
             BhCrashReporter.onGameIdentified(appCtx, curId, curName);
             BhMemProbe.maybeStart();
+            BhTrainerProgram.onGameResume(appCtx);
             lastMark = SystemClock.elapsedRealtime();
             running = true;
             if (ticker != null) ticker.cancel(false);

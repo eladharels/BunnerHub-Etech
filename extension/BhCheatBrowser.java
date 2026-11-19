@@ -68,10 +68,22 @@ public final class BhCheatBrowser {
         void onImported(String message);
     }
 
+    /** What to do with a downloaded file: returns the message to show, or throws. */
+    public interface Downloaded {
+        String handle(Context ctx, byte[] data, String fileName) throws Exception;
+    }
+
     private BhCheatBrowser() {}
 
-    /** Opens the browser over the game. */
+    /** Opens the browser over the game on FearLess, importing a downloaded cheat table. */
     public static void show(Context context, Done done) {
+        show(context, searchUrl(BhPlayTime.currentGameName()),
+                "Find a cheat table: sign in once, then tap the table's download link",
+                BhCheatBrowser::importTableData, done);
+    }
+
+    /** Opens the browser over the game at startUrl; a download goes to handler. */
+    public static void show(Context context, String startUrl, String hint, Downloaded handler, Done done) {
         if (!(context instanceof Activity)) {
             Toast.makeText(context, "Can't open the browser here", Toast.LENGTH_SHORT).show();
             return;
@@ -95,7 +107,7 @@ public final class BhCheatBrowser {
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         title.setSingleLine(true);
         title.setPadding(dp(act, 12), 0, dp(act, 12), 0);
-        title.setText("Find a cheat table: sign in once, then tap the table's download link");
+        title.setText(hint);
         Button close = barButton(act, "Close");
         bar.addView(back);
         bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
@@ -140,7 +152,7 @@ public final class BhCheatBrowser {
                 String msg;
                 boolean ok = false;
                 try {
-                    msg = fetchAndImport(act.getApplicationContext(), url, userAgent, cookies, name);
+                    msg = handler.handle(act.getApplicationContext(), download(url, userAgent, cookies), name);
                     ok = true;
                 } catch (Throwable t) {
                     Log.w(TAG, "download failed: " + url, t);
@@ -188,7 +200,7 @@ public final class BhCheatBrowser {
             w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         dlg.show();
-        web.loadUrl(searchUrl(BhPlayTime.currentGameName()));
+        web.loadUrl(startUrl);
     }
 
     /** FearLess search for the game's name (or the front page without one). */
@@ -211,10 +223,9 @@ public final class BhCheatBrowser {
 
     // ── Download and import ──────────────────────────────────────────────────
 
-    static String fetchAndImport(Context ctx, String url, String userAgent, String cookies, String name)
-            throws Exception {
+    /** A downloaded cheat table (or a zip of them): save to BunnerHub-Etech/tables and import. */
+    static String importTableData(Context ctx, byte[] data, String name) throws Exception {
         if (BhPlayTime.currentGameId() == null) throw new IllegalStateException("No game is running");
-        byte[] data = download(url, userAgent, cookies);
         List<NamedFile> tables = new ArrayList<>();
         if (isZip(data)) {
             tables.addAll(tablesInZip(data));
@@ -249,7 +260,7 @@ public final class BhCheatBrowser {
                 + (r[0] < r[1] ? " (the rest are scripts, not supported yet)" : "")) + more;
     }
 
-    private static byte[] download(String url, String userAgent, String cookies) throws Exception {
+    static byte[] download(String url, String userAgent, String cookies) throws Exception {
         URL u = new URL(url);
         if (!"https".equals(u.getProtocol())) throw new IllegalStateException("Only https downloads");
         HttpURLConnection c = (HttpURLConnection) u.openConnection();
