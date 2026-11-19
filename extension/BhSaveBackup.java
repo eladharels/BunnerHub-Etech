@@ -65,22 +65,29 @@ public final class BhSaveBackup {
     // ── Detail page chip ─────────────────────────────────────────────────────
 
     static void onDetail(Activity activity, Object entity) {
-        try {
-            String id = gameId(activity, entity);
-            Object nameObj = call(entity, "getName");
-            String name = nameObj instanceof String && !((String) nameObj).isEmpty() ? (String) nameObj : "Game " + id;
-            if (id == null) return;
-            boolean has = container(activity, id).isDirectory() || !backups(name, id).isEmpty();
-            activity.runOnUiThread(() -> {
-                if (has) showChip(activity, id, name);
-                else removeChip(activity);
-            });
-        } catch (Throwable t) {
-            Log.w(TAG, "onDetail failed", t);
-        }
+        // GameDetailActivity's observer runs on the UI thread: do the file checks elsewhere.
+        new Thread(() -> {
+            try {
+                String id = gameId(activity, entity);
+                Object nameObj = call(entity, "getName");
+                String name = nameObj instanceof String && !((String) nameObj).isEmpty()
+                        ? (String) nameObj : "Game " + id;
+                boolean has = id != null && (container(activity, id).isDirectory() || !backups(name, id).isEmpty());
+                activity.runOnUiThread(() -> {
+                    if (has) showChip(activity, id, name);
+                    else removeChip(activity); // also clears an earlier game's chip
+                });
+            } catch (Throwable t) {
+                Log.w(TAG, "onDetail failed", t);
+            }
+        }, "BhSaveBackupDetail").start();
     }
 
-    /** The game's container id: the server id if a container exists for it, else the local id. */
+    /**
+     * The game's container id: whichever of the server id / local id has a
+     * container; else whichever has a backup folder (e.g. after the app's data
+     * was cleared); else the server id.
+     */
     static String gameId(Context ctx, Object entity) {
         Object server = call(entity, "getId");
         Object local = call(entity, "getLocalGameId");
@@ -88,6 +95,8 @@ public final class BhSaveBackup {
         String l = local instanceof String && !((String) local).isEmpty() ? (String) local : null;
         if (s != null && container(ctx, s).isDirectory()) return s;
         if (l != null && container(ctx, l).isDirectory()) return l;
+        if (s != null && findDir(s) != null) return s;
+        if (l != null && findDir(l) != null) return l;
         return s != null ? s : l;
     }
 
@@ -132,12 +141,20 @@ public final class BhSaveBackup {
     // ── Dialogs ──────────────────────────────────────────────────────────────
 
     private static void showDialog(Activity activity, String id, String name) {
-        List<File> list = backups(name, id);
-        boolean hasContainer = container(activity, id).isDirectory();
+        new Thread(() -> {
+            List<File> list = backups(name, id);
+            boolean hasContainer = container(activity, id).isDirectory();
+            File where = dir(name, id);
+            activity.runOnUiThread(() -> showDialog(activity, id, name, list, hasContainer, where));
+        }, "BhSaveBackupList").start();
+    }
+
+    private static void showDialog(Activity activity, String id, String name, List<File> list, boolean hasContainer,
+                                   File where) {
         StringBuilder msg = new StringBuilder();
         msg.append("Copies this game's saves and settings (Documents, AppData, Saved Games and Steam saves in its "
                 + "Wine container) to your phone's storage:\n")
-                .append(dir(name, id).getAbsolutePath().replace(Environment.getExternalStorageDirectory().getPath(),
+                .append(where.getAbsolutePath().replace(Environment.getExternalStorageDirectory().getPath(),
                         "Internal storage"))
                 .append("\n\n");
         msg.append(list.isEmpty() ? "No backups yet." : "Latest backup: " + describe(list.get(0)) + " ("
@@ -151,20 +168,22 @@ public final class BhSaveBackup {
                 .setMessage(msg.toString())
                 .setNegativeButton("Close", null);
         if (hasContainer) b.setPositiveButton("Back up now", (d, w) -> runBackup(activity, id, name, null));
-        if (hasContainer && !list.isEmpty()) b.setNeutralButton("Restore…", (d, w) -> chooseRestore(activity, id, name));
+        if (hasContainer && !list.isEmpty()) {
+            b.setNeutralButton("Restore…", (d, w) -> chooseRestore(activity, id, name, list));
+        }
         b.show();
     }
 
-    private static void chooseRestore(Activity activity, String id, String name) {
-        List<File> list = backups(name, id);
+    private static void chooseRestore(Activity activity, String id, String name, List<File> list) {
         String[] items = new String[list.size()];
         for (int i = 0; i < items.length; i++) items[i] = describe(list.get(i));
         new AlertDialog.Builder(activity)
                 .setTitle("Restore which backup?")
                 .setItems(items, (d, which) -> new AlertDialog.Builder(activity)
                         .setTitle("Restore this backup?")
-                        .setMessage(items[which] + "\n\nThe game's current saves are replaced. They are backed up "
-                                + "first, so you can go back. Make sure the game isn't running.")
+                        .setMessage(items[which] + "\n\nThe game's saves become exactly what this backup holds: "
+                                + "saves made since then are removed. Your current saves are backed up first, "
+                                + "so you can go back. Make sure the game isn't running.")
                         .setPositiveButton("Restore", (d2, w2) -> runBackup(activity, id, name, list.get(which)))
                         .setNegativeButton("Cancel", null)
                         .show())
@@ -181,8 +200,9 @@ public final class BhSaveBackup {
                 .show();
         new Thread(() -> {
             String result;
+            File made = null;
             try {
-                File made = backup(activity, id, name);
+                made = backup(activity, id, name, restoreFrom); // never prunes the backup being restored
                 if (restoreFrom == null) {
                     result = "Backed up: " + describe(made);
                 } else {
@@ -192,8 +212,11 @@ public final class BhSaveBackup {
                 }
             } catch (Throwable t) {
                 Log.w(TAG, "backup/restore failed", t);
-                result = (restoreFrom == null ? "Backup failed: " : "Restore failed: ")
-                        + (t.getMessage() != null ? t.getMessage() : t.toString());
+                String why = t.getMessage() != null ? t.getMessage() : t.toString();
+                if (restoreFrom == null) result = "Backup failed: " + why;
+                else if (made == null) result = "Restore not started (the safety backup failed): " + why;
+                else result = "Restore failed: " + why + ". Your saves from before are in the backup from "
+                        + describe(made) + ": restore that one to go back.";
             }
             String r = result;
             activity.runOnUiThread(() -> {
@@ -212,10 +235,26 @@ public final class BhSaveBackup {
         return new File(ctx.getFilesDir(), "usr/home/virtual_containers/" + id.replaceAll("[^A-Za-z0-9._-]", "_"));
     }
 
+    private static File savesRoot() {
+        return new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/saves");
+    }
+
+    /** The game's backup folder: an existing "<any name> (<id>)" folder, else "<name> (<id>)". */
     static File dir(String name, String id) {
+        File found = findDir(id);
+        if (found != null) return found;
         String safe = name.replaceAll("[\\\\/:*?\"<>|\\x00-\\x1f]", "_").trim();
         if (safe.length() > 60) safe = safe.substring(0, 60).trim();
-        return new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/saves/" + safe + " (" + id + ")");
+        return new File(savesRoot(), safe + " (" + id + ")");
+    }
+
+    /** The backup folder of a game id whatever its name part (names can change), or null. */
+    static File findDir(String id) {
+        String suffix = " (" + id + ")";
+        File[] dirs = savesRoot().listFiles(f -> f.isDirectory() && f.getName().endsWith(suffix));
+        if (dirs == null || dirs.length == 0) return null;
+        Arrays.sort(dirs, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        return dirs[0];
     }
 
     /** Backups of a game, newest first. */
@@ -227,18 +266,21 @@ public final class BhSaveBackup {
         return out;
     }
 
-    /** What a backup holds: the folders below, by their path inside the zip. */
-    static List<String[]> sources(File container) {
-        List<String[]> out = new ArrayList<>();
-        out.add(new String[]{"drive_c/users", "users"});
-        for (String steam : new String[]{"drive_c/Program Files (x86)/Steam/userdata", "drive_c/Program Files/Steam/userdata"}) {
-            if (new File(container, steam).isDirectory()) out.add(new String[]{steam, "steam_userdata"});
-        }
-        return out;
+    private static final String INFO = "bunnerhub-saves.txt";
+    private static final String[] STEAM = {"drive_c/Program Files (x86)/Steam", "drive_c/Program Files/Steam"};
+
+    /** The container's Steam folder that has userdata (the first found), or null. */
+    static String steamDir(File container) {
+        for (String st : STEAM) if (new File(container, st + "/userdata").isDirectory()) return st;
+        return null;
     }
 
-    /** Zips the container's save folders; returns the new backup. */
-    static synchronized File backup(Context ctx, String id, String name) throws Exception {
+    /**
+     * Zips the container's save folders; returns the new backup. Keeps the
+     * newest KEEP backups, never deleting {@code keep} (a backup about to be
+     * restored).
+     */
+    static synchronized File backup(Context ctx, String id, String name, File keep) throws Exception {
         File container = container(ctx, id);
         if (!container.isDirectory()) throw new IllegalStateException("This game has no container yet");
         File dir = dir(name, id);
@@ -248,20 +290,30 @@ public final class BhSaveBackup {
         File part = new File(dir, out.getName() + ".part");
         long[] size = {0};
         java.util.Set<String> seen = new java.util.HashSet<>(); // folders already zipped (links can loop)
+        seen.add(savesRoot().getCanonicalPath()); // never zip the backups themselves
+        String steam = steamDir(container);
         try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(part))) {
-            for (String[] src : sources(container)) {
-                File root = new File(container, src[0]);
-                if (root.isDirectory()) add(z, root, src[1], size, seen);
-            }
+            // Always one entry (an empty zip is an error), recording where Steam's saves came from.
+            z.putNextEntry(new ZipEntry(INFO));
+            z.write(("BunnerHub Etech save backup\ngame id: " + id + "\nname: " + name + "\nsteam: "
+                    + (steam == null ? "" : steam) + "\n").getBytes("UTF-8"));
+            z.closeEntry();
+            File users = new File(container, "drive_c/users");
+            if (users.isDirectory()) add(z, users, "users", size, seen);
+            if (steam != null) add(z, new File(container, steam + "/userdata"), "steam_userdata", size, seen);
         } catch (Exception e) {
             if (!part.delete()) Log.w(TAG, "cannot delete " + part);
             throw e;
         }
         if (!part.renameTo(out)) throw new IllegalStateException("Cannot save the backup");
-        // Keep the newest KEEP backups.
         List<File> all = backups(name, id);
-        for (int i = KEEP; i < all.size(); i++) {
-            if (!all.get(i).delete()) Log.w(TAG, "cannot delete " + all.get(i));
+        int kept = 0;
+        for (File f : all) {
+            if (f.equals(keep) || f.equals(out) || kept < KEEP) {
+                if (!f.equals(keep)) kept++;
+                continue;
+            }
+            if (!f.delete()) Log.w(TAG, "cannot delete " + f);
         }
         if (size[0] > WARN_BYTES) Log.w(TAG, "large backup: " + (size[0] >> 20) + " MB");
         return out;
@@ -306,45 +358,108 @@ public final class BhSaveBackup {
         return false;
     }
 
-    /** Unzips a backup into the container (overwriting); returns the number of files written. */
+    /** Where a zip entry goes in the container, or null (not ours, or unsafe). */
+    private static String target(String entry, String steam) {
+        String name = entry.replace('\\', '/');
+        if (name.startsWith("/") || ("/" + name + "/").contains("/../")) return null; // no escapes
+        if (name.equals("users") || name.startsWith("users/")) return "drive_c/" + name;
+        if (name.equals("steam_userdata") || name.startsWith("steam_userdata/")) {
+            return steam + "/userdata" + name.substring("steam_userdata".length());
+        }
+        return null;
+    }
+
+    /**
+     * Makes the container's save folders exactly what the backup holds:
+     * checks the whole zip first, clears the folders it covers (except cache
+     * folders, which backups leave out), then writes each file through a
+     * temporary file. Returns the number of files written.
+     */
     static synchronized int restore(Context ctx, String id, File backup) throws Exception {
         File container = container(ctx, id);
         if (!container.isDirectory()) throw new IllegalStateException("This game has no container yet");
-        String root = container.getCanonicalPath() + File.separator;
+
+        // 1. Read the whole zip once (checks every entry's CRC) and find the Steam folder it came from.
+        String steam = null;
+        boolean hasSteam = false;
+        try (ZipInputStream z = new ZipInputStream(new FileInputStream(backup))) {
+            ZipEntry e;
+            byte[] buf = new byte[65536];
+            while ((e = z.getNextEntry()) != null) {
+                if (e.getName().equals(INFO)) {
+                    java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+                    int n;
+                    while ((n = z.read(buf)) > 0) b.write(buf, 0, n);
+                    for (String line : b.toString("UTF-8").split("\n")) {
+                        if (line.startsWith("steam: ") && line.length() > 7) steam = line.substring(7).trim();
+                    }
+                } else {
+                    if (e.getName().startsWith("steam_userdata")) hasSteam = true;
+                    while (z.read(buf) > 0) { /* CRC check */ }
+                }
+            }
+        }
+        if (steam == null || steam.isEmpty()) {
+            String now = steamDir(container);
+            steam = now != null ? now : STEAM[0];
+        }
+
+        // 2. Clear what the backup covers (its pre-restore copy was just made).
+        clear(new File(container, "drive_c/users"));
+        if (hasSteam) clear(new File(container, steam + "/userdata"));
+
+        // 3. Write the files.
         int files = 0;
         try (ZipInputStream z = new ZipInputStream(new FileInputStream(backup))) {
             ZipEntry e;
             byte[] buf = new byte[65536];
             while ((e = z.getNextEntry()) != null) {
-                String name = e.getName().replace('\\', '/');
-                String target;
-                if (name.startsWith("users/") || name.equals("users")) {
-                    target = "drive_c/" + name;
-                } else if (name.startsWith("steam_userdata/") || name.equals("steam_userdata")) {
-                    String steam = new File(container, "drive_c/Program Files/Steam").isDirectory()
-                            && !new File(container, "drive_c/Program Files (x86)/Steam").isDirectory()
-                            ? "drive_c/Program Files/Steam/userdata" : "drive_c/Program Files (x86)/Steam/userdata";
-                    target = steam + name.substring("steam_userdata".length());
-                } else {
-                    continue; // not ours
-                }
-                File out = new File(container, target);
-                if (!out.getCanonicalPath().startsWith(root)) continue; // no ../ escapes
+                String t = target(e.getName(), steam);
+                if (t == null) continue;
+                File out = new File(container, t);
                 if (e.isDirectory()) {
                     out.mkdirs();
                     continue;
                 }
                 File parent = out.getParentFile();
                 if (parent != null && !parent.isDirectory()) parent.mkdirs();
-                try (OutputStream o = new FileOutputStream(out)) {
+                File tmp = new File(parent, out.getName() + ".bhrestore");
+                try (OutputStream o = new FileOutputStream(tmp)) {
                     int n;
                     while ((n = z.read(buf)) > 0) o.write(buf, 0, n);
+                }
+                if (!tmp.renameTo(out)) {
+                    if (!tmp.delete()) Log.w(TAG, "cannot delete " + tmp);
+                    throw new IllegalStateException("Cannot write " + t);
                 }
                 if (e.getTime() > 0) out.setLastModified(e.getTime());
                 files++;
             }
         }
         return files;
+    }
+
+    /**
+     * Deletes the files under dir (the save folders a restore replaces),
+     * keeping cache folders and never deleting through links.
+     */
+    static void clear(File dir) throws Exception {
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File k : kids) {
+            boolean link = !k.getCanonicalPath().equals(k.getAbsoluteFile().getParentFile().getCanonicalPath()
+                    + File.separator + k.getName());
+            if (k.isDirectory() && !link) {
+                if (skip(k.getName())) continue;
+                clear(k);
+                File[] left = k.listFiles();
+                if (left != null && left.length == 0 && !k.delete()) Log.w(TAG, "cannot delete " + k);
+            } else if (k.isFile() && !link) {
+                if (!k.delete()) throw new IllegalStateException("Cannot replace " + k.getName());
+            }
+            // A link (e.g. Documents pointing elsewhere) is left alone: what it points to may
+            // not be the game's to delete. The restore writes through it.
+        }
     }
 
     static String describe(File backup) {

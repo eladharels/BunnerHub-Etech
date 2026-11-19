@@ -931,7 +931,7 @@ When a game is installed and launched, GameHub creates a Wine virtual container 
 
 ### Save Backup
 
-A **💾 Saves** chip on each game's detail page (once the game has a container): **Back up now** zips the container's user folders (Documents, AppData, Saved Games, for all users) and Steam's `userdata` (Steam Cloud saves) to `/sdcard/BunnerHub-Etech/saves/<game> (<id>)/saves-<date>.zip`, leaving out caches and temp folders; the last 5 backups are kept. **Restore…** picks a backup, backs up the current state first, then puts the backup's files back into the container. Use it before uninstalling the app or clearing its data, or to keep saves safe. A game that was installed again needs one launch (to create its container) before restoring.
+A **💾 Saves** chip on each game's detail page (once the game has a container): **Back up now** zips the container's user folders (Documents, AppData, Saved Games, for all users) and Steam's `userdata` (Steam Cloud saves) to `/sdcard/BunnerHub-Etech/saves/<game> (<id>)/saves-<date>.zip`, leaving out caches and temp folders; the last 5 backups are kept. **Restore…** picks a backup, backs up the current state first, then makes the save folders exactly what the backup holds (saves made since then are removed; caches and anything behind folder links are never deleted). Use it before uninstalling the app or clearing its data, or to keep saves safe. A game that was installed again needs one launch (to create its container) before restoring.
 
 ### UI Tweaks
 
