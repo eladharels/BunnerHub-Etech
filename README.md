@@ -925,7 +925,9 @@ BannerHub includes a complete **3,468-string Japanese translation** covering eve
 
 ### Virtual Container Cleanup on Uninstall
 
-When a game is installed and launched, GameHub creates a Wine virtual container at `virtual_containers/{gameId}/` to hold the game's Windows environment. BannerHub ensures this container directory is fully cleaned up when the game is uninstalled, preventing orphaned containers from accumulating on disk over time.
+When a game is installed and launched, GameHub creates a Wine virtual container at `virtual_containers/{gameId}/` to hold the game's Windows environment (its drive C, including Documents and AppData, where most games keep **saves and settings**).
+
+**Not active:** BannerHub v2.8.4 added a cleanup that deleted this container on uninstall, but it was removed again on 2026-04-03 (upstream commit `2fd8007`, "the cleanup was causing issues"). GameHub's own uninstall (`UninstallGameHelper`) deletes the game files, library entry and cover, but not the container, so **saves kept in the container survive an uninstall** and come back if the game is installed again. Games that save inside their own install folder lose those saves with the game files. The container lives in the app's private storage, so it is lost if the app's data is cleared.
 
 ### UI Tweaks
 
