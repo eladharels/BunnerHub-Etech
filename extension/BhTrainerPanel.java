@@ -445,6 +445,27 @@ public final class BhTrainerPanel {
         programMono.setOnClickListener(v -> installMono());
         programBox.addView(programMono, margins(0, 8, 0, 0));
 
+        // ── Cheat switches: each presses the trainer's keys in the game ──
+        List<BhTrainerKeys.Option> opts = BhTrainerKeys.load(BhTrainerProgram.dir(id));
+        TextView cheatsTitle = text(13, WHITE, true);
+        cheatsTitle.setText("Cheats");
+        programBox.addView(cheatsTitle, margins(0, 14, 0, 2));
+        if (opts.isEmpty()) {
+            TextView none = text(11, GREY, false);
+            none.setText("No cheat list for this trainer. Download it with Find another to read the list from "
+                    + "its page, or use the Key pad with the keys the trainer shows.");
+            programBox.addView(none);
+        } else {
+            TextView hint = text(11, GREY, false);
+            hint.setText("Tap a cheat to press its keys in the game. ON/OFF is the app's guess: "
+                    + "tap again if it's out of step.");
+            programBox.addView(hint, margins(0, 0, 0, 4));
+            for (BhTrainerKeys.Option o : opts) programBox.addView(cheatRow(o));
+        }
+        Button pad = button("Key pad", false);
+        pad.setOnClickListener(v -> keyPad());
+        programBox.addView(pad, margins(0, 8, 0, 0));
+
         LinearLayout row2 = new LinearLayout(ctx);
         Button other = button("Find another", false);
         other.setOnClickListener(v -> programFindOnline());
@@ -537,6 +558,99 @@ public final class BhTrainerPanel {
         if (ctx != null) Toast.makeText(ctx, s, Toast.LENGTH_LONG).show();
     }
 
+    /** Cheat states as the app last set them, by game and keys (the trainer can't be asked). */
+    private static final java.util.Map<String, Boolean> cheatOn = new java.util.HashMap<>();
+
+    private static LinearLayout cheatRow(BhTrainerKeys.Option o) {
+        String id = BhPlayTime.currentGameId();
+        String key = id + "|" + o.keys;
+        LinearLayout row = new LinearLayout(ctx);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(6), dp(6), dp(6));
+        row.setBackground(rounded(0x14FFFFFF, 8));
+        TextView chip = text(11, WHITE, true);
+        chip.setText(o.keys);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(6), dp(3), dp(6), dp(3));
+        chip.setBackground(rounded(0x33FFFFFF, 6));
+        chip.setMinWidth(dp(64));
+        row.addView(chip);
+        TextView label = text(13, WHITE, false);
+        label.setText(o.label);
+        label.setPadding(dp(10), 0, dp(8), 0);
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
+        boolean on = Boolean.TRUE.equals(cheatOn.get(key));
+        Button sw = button(on ? "ON" : "OFF", on);
+        sw.setMinimumWidth(dp(64));
+        sw.setContentDescription(o.label + ", " + o.keys);
+        sw.setOnClickListener(v -> {
+            if (!BhTrainerKeys.press(ctx, o.codes)) {
+                toast("Can't reach the game's input");
+                return;
+            }
+            boolean now = !Boolean.TRUE.equals(cheatOn.get(key));
+            cheatOn.put(key, now);
+            sw.setText(now ? "ON" : "OFF");
+            sw.setBackground(button(now ? "ON" : "OFF", now).getBackground()); // colours only; keeps focus
+        });
+        row.addView(sw);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(4);
+        row.setLayoutParams(lp);
+        return row;
+    }
+
+    /** Key pad: the keys trainers use, with Ctrl / Alt / Shift latches. */
+    private static void keyPad() {
+        boolean[] mods = new boolean[3]; // ctrl, alt, shift
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), dp(8));
+        String[][] rows = {
+                {"Ctrl", "Alt", "Shift", "NumLock"},
+                {"Num 7", "Num 8", "Num 9", "Num -"},
+                {"Num 4", "Num 5", "Num 6", "Num +"},
+                {"Num 1", "Num 2", "Num 3", "Num ."},
+                {"Num 0", "Num *", "Num /", "Home"},
+                {"F1", "F2", "F3", "F4"},
+                {"F5", "F6", "F7", "F8"},
+                {"F9", "F10", "F11", "F12"},
+        };
+        for (String[] r : rows) {
+            LinearLayout line = new LinearLayout(ctx);
+            for (String k : r) {
+                Button b = button(k, false);
+                b.setOnClickListener(v -> {
+                    int m = k.equals("Ctrl") ? 0 : k.equals("Alt") ? 1 : k.equals("Shift") ? 2 : -1;
+                    if (m >= 0) {
+                        mods[m] = !mods[m];
+                        b.setBackground(button(k, mods[m]).getBackground());
+                        return;
+                    }
+                    StringBuilder combo = new StringBuilder();
+                    if (mods[0]) combo.append("Ctrl+");
+                    if (mods[1]) combo.append("Alt+");
+                    if (mods[2]) combo.append("Shift+");
+                    combo.append(k);
+                    int[] codes = BhTrainerKeys.codes(combo.toString());
+                    if (codes == null || !BhTrainerKeys.press(ctx, codes)) toast("Can't reach the game's input");
+                    else toast("Pressed " + combo);
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+                lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                line.addView(b, lp);
+            }
+            box.addView(line);
+        }
+        ScrollView sv = new ScrollView(ctx);
+        sv.addView(box);
+        new AlertDialog.Builder(ctx)
+                .setTitle("Key pad: press a trainer key")
+                .setView(sv)
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
     private static void installMono() {
         if (programBusy) return;
         programBusy = true;
@@ -567,9 +681,15 @@ public final class BhTrainerPanel {
             toast("No game running");
             return;
         }
+        String gameId = BhPlayTime.currentGameId();
         BhCheatBrowser.show(ctx, BhTrainerProgram.searchUrl(BhPlayTime.currentGameName()),
                 "Find a trainer for this game, then tap its download link",
-                BhTrainerProgram::install,
+                (c, data, name) -> {
+                    String saved = BhTrainerProgram.install(c, data, name);
+                    // The page the download came from lists the cheats and their keys.
+                    int n = BhTrainerKeys.savePage(BhTrainerProgram.dir(gameId), BhCheatBrowser.lastPageText());
+                    return saved + (n > 0 ? " (" + n + " cheats found)" : "");
+                },
                 msg -> {
                     toastLong(installedMessage(msg));
                     programRefocus = true;

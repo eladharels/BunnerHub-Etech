@@ -138,6 +138,20 @@ public final class BhCheatBrowser {
             public android.webkit.WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest req) {
                 return intercept(req, onFileRef[0]);
             }
+
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                // Keep the text of the page a download starts from (a trainer page lists
+                // its cheats and keys); not the "Importing…" note or other download URLs.
+                if (url == null || DOWNLOADISH.matcher(url).find() || url.startsWith("data:")) return;
+                v.evaluateJavascript("document.body ? document.body.innerText : ''", value -> {
+                    try {
+                        String text = new org.json.JSONArray("[" + value + "]").getString(0);
+                        if (text.length() > 200) lastPageText = text;
+                    } catch (Throwable ignored) {
+                    }
+                });
+            }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -213,6 +227,7 @@ public final class BhCheatBrowser {
             w.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
+        lastPageText = null;
         dlg.show();
         web.loadUrl(startUrl);
     }
@@ -222,6 +237,13 @@ public final class BhCheatBrowser {
         if (game == null || game.trim().isEmpty()) return SITE;
         String q = game.replaceAll("[™®©:]", " ").replaceAll("\\s+", " ").trim();
         return SITE + "search.php?sr=topics&keywords=" + Uri.encode(q);
+    }
+
+    private static volatile String lastPageText;
+
+    /** Text of the last page loaded in the browser (the page a download started from). */
+    static String lastPageText() {
+        return lastPageText;
     }
 
     interface FileReady {
