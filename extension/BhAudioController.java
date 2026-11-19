@@ -58,11 +58,23 @@ public final class BhAudioController {
 
     private static final String TAG = "BhAudio";
 
-    /** Stock default.pa sink line as built by PulseAudioPlugin. */
-    public static final String STOCK_SINK_LINE = "load-module module-aaudio-sink";
+    /**
+     * Fixed sample rate for the AAudio stream. Without "rate=" the module
+     * opens the stream at the output device's native rate and adopts it as
+     * the sink rate. When the output changes (e.g. Bluetooth earbuds connect)
+     * the stream is reopened at the new device's rate, but
+     * pa_sink_reconfigure() keeps the old default rate (both are multiples
+     * of 4000), so 48 kHz audio is played on a 96 kHz stream: 2x speed and
+     * pitch (Galaxy Buds 4 Pro, 2026-11-19). With an explicit rate AAudio
+     * resamples to whatever the device needs and the sink rate never changes.
+     */
+    public static final String RATE_ARG = " rate=48000";
+
+    /** Default sink line (stock GameHub plus the fixed rate). */
+    public static final String STOCK_SINK_LINE = "load-module module-aaudio-sink" + RATE_ARG;
 
     /** Recording-compatible variant (module adds +10 → PERFORMANCE_MODE_NONE). */
-    public static final String RECORDING_SINK_LINE = "load-module module-aaudio-sink pm=0";
+    public static final String RECORDING_SINK_LINE = "load-module module-aaudio-sink pm=0" + RATE_ARG;
 
     /** Boolean key inside pc_g_setting<gameId>; exported/imported with the game config. */
     public static final String KEY_RECORDING_MODE = "bh_audio_recording_mode";

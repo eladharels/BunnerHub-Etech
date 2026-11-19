@@ -599,6 +599,8 @@ Stock GameHub loads `module-aaudio-sink` with no performance-mode argument, so P
 
 **Recording-compatible** routes the `default.pa` sink line through the extension, appending `pm=0` — the module computes `setPerformanceMode(pm + 10)`, so `0` → `PERFORMANCE_MODE_NONE` → the stream stays on the mixer and screen recordings capture in-game sound. The active game's `gameId` is resolved from the live `WineActivity`'s `WineActivityData` field (the 5.3.5 launch intent carries no `gameId` extra). Settings live in the stock `pc_g_setting<gameId>` SharedPreferences, so the existing **Export / Import Config** flow carries them automatically.
 
+**Bluetooth earbuds play at 2x speed (fixed):** the AAudio sink is now always loaded with `rate=48000`. Without it, the stream reopens at the earbuds' native rate when they connect (e.g. 96 kHz) while PulseAudio keeps rendering at 48 kHz, so game audio played twice as fast. With a fixed rate Android resamples to the device instead. Applies to the PulseAudio audio driver.
+
 ---
 
 ### In-Game Voice Chat

@@ -4,6 +4,10 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — Bluetooth earbuds 2x audio speed; sidebar focus highlight (2026-11-19)
+- Device report: with Galaxy Buds 4 Pro connected, game audio plays about 2x fast, independent of FPS. Cause, from Termux's `module-aaudio-sink.c` (GameHub's PulseAudio sink): with no `rate=` argument the AAudio stream opens at the device's native rate and the sink adopts it. When the output device changes the stream gets `AAUDIO_ERROR_DISCONNECTED`, the sink suspends and reopens at the new device's rate (e.g. 96 kHz), but `pa_sink_reconfigure()` keeps the old default rate (both multiples of 4000), so 48 kHz audio plays on a 96 kHz stream. Fix: `BhAudioController` now always appends `rate=48000` to the sink line (stock and recording-compatible), so AAudio resamples and the sink rate never changes. Not yet device-tested.
+- Device report: after the scrollable icon column (2026-11-17) the sidebar tabs lost their focus highlight. The plain `ScrollView` broke GameHub's focus chain; replaced with GameHub's own `FocusableNestedScrollView` (used in its sidebar pages). The "selected tab" background (`SidebarTitleItemView.N()/K()`) is only drawn for GameHub's original tabs, as before.
+
 ### [feat] — FSR upscaling tab in the in-game sidebar (2026-11-17)
 Roadmap item 7 (upscaling option 1: Wine's built-in FSR 1).
 - Finding: `EnvironmentController` always sets `WINE_DISABLE_FULLSCREEN_HACK=1`, and Proton/GE Wine's FSR lives inside that fullscreen hack. GameHub also sets `DXVK_LOG_LEVEL=warn`. (Its own `SuperResolution` setting is only CAS sharpening in the X renderer, not upscaling.)
