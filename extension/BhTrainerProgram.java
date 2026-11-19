@@ -264,7 +264,15 @@ public final class BhTrainerProgram {
         if (runningPid(ctx) > 0) return "The trainer is already running";
         // Wine takes a few seconds to show the process: don't start (and re-copy) twice.
         if (System.currentTimeMillis() - startedAt < START_GRACE_MS) return "The trainer is already starting";
-        String prefix = BhWineLaunchHelper.getWinePrefix();
+        String[] argv = gameArgv;
+        if (argv == null) {
+            throw new IllegalStateException("The app didn't see how this game was started. "
+                    + "Restart the game once, then try again.");
+        }
+        String[] env = gameEnv;
+        // The game's own prefix first (its launch environment), else any running Wine's.
+        String prefix = envValue(env, "WINEPREFIX");
+        if (prefix == null) prefix = BhWineLaunchHelper.getWinePrefix();
         if (prefix == null) throw new IllegalStateException("Can't find the game's Wine");
         File dst = new File(prefix, "drive_c/bh_trainer");
         deleteTree(dst);
@@ -272,31 +280,19 @@ public final class BhTrainerProgram {
         String rel = exe.getAbsolutePath().substring(dir(id).getAbsolutePath().length() + 1);
         File target = new File(dst, rel);
         if (!target.isFile()) throw new IllegalStateException("Copying the trainer failed");
-        String[] argv = gameArgv;
-        if (argv == null) {
-            throw new IllegalStateException("The app didn't see how this game was started. "
-                    + "Restart the game once, then try again.");
-        }
-        String[] cmd = trainerCommand(argv, "C:\\bh_trainer\\" + rel.replace('/', '\\'));
+        String winPath = "C:\\bh_trainer\\" + rel.replace('/', '\\');
+        String[] cmd = trainerCommand(argv, winPath);
         if (cmd == null) throw new IllegalStateException("Can't find the game in its launch command");
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        if (workDir != null) pb.directory(workDir);
-        String[] env = gameEnv;
-        if (env != null) {
-            pb.environment().clear();
-            for (String kv : env) {
-                int eq = kv.indexOf('=');
-                if (eq > 0) pb.environment().put(kv.substring(0, eq), kv.substring(eq + 1));
-            }
-        }
-        File devNull = new File("/dev/null");
-        pb.redirectOutput(ProcessBuilder.Redirect.to(devNull));
-        pb.redirectError(ProcessBuilder.Redirect.to(devNull));
-        pb.redirectInput(ProcessBuilder.Redirect.from(devNull));
-        writeLaunchNote(cmd, argv);
-        pb.start();
+
+        File logs = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs");
+        if (!logs.isDirectory()) logs.mkdirs();
+        File note = new File(logs, "trainer-launch.txt");
+        File output = new File(logs, "trainer-output.log");
+        writeLaunchNote(cmd, argv, prefix, target);
+        Process proc = launch(cmd, env, output, false);
         startedAt = System.currentTimeMillis();
         Log.i(TAG, "started: " + String.join(" ", cmd));
+        watch(proc, cmd, env, output, note, winPath);
         return "Starting " + exe.getName() + "…";
     }
 
@@ -348,16 +344,87 @@ public final class BhTrainerProgram {
     }
 
     /** /sdcard/BunnerHub-Etech/logs/trainer-launch.txt: the commands used, for troubleshooting. */
-    private static void writeLaunchNote(String[] cmd, String[] gameCmd) {
+    private static void writeLaunchNote(String[] cmd, String[] gameCmd, String prefix, File copy) {
         try {
             File dir = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs");
             if (!dir.isDirectory() && !dir.mkdirs()) return;
             String note = "time: " + new java.util.Date() + "\nworking dir: " + workDir
+                    + "\nwine prefix: " + prefix + "\ntrainer copy: " + copy + " (" + copy.length() + " bytes)"
                     + "\ngame command:\n  " + String.join("\n  ", gameCmd)
                     + "\ntrainer command:\n  " + String.join("\n  ", cmd) + "\n";
             write(new File(dir, "trainer-launch.txt"), note.getBytes("UTF-8"));
         } catch (Throwable ignored) {
         }
+    }
+
+    private static void appendNote(File note, String line) {
+        try (OutputStream o = new FileOutputStream(note, true)) {
+            o.write((line + "\n").getBytes("UTF-8"));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String envValue(String[] env, String key) {
+        if (env == null) return null;
+        for (String kv : env) {
+            if (kv != null && kv.startsWith(key + "=")) return kv.substring(key.length() + 1);
+        }
+        return null;
+    }
+
+    /** Starts cmd with the game's environment; output (with Wine errors) goes to the log. */
+    private static Process launch(String[] cmd, String[] env, File output, boolean append) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        if (workDir != null) pb.directory(workDir);
+        if (env != null) {
+            pb.environment().clear();
+            for (String kv : env) {
+                int eq = kv.indexOf('=');
+                if (eq > 0) pb.environment().put(kv.substring(0, eq), kv.substring(eq + 1));
+            }
+        }
+        pb.environment().put("WINEDEBUG", "err+all,fixme-all"); // Wine's errors, for the log
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(append ? ProcessBuilder.Redirect.appendTo(output) : ProcessBuilder.Redirect.to(output));
+        pb.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
+        return pb.start();
+    }
+
+    /**
+     * Notes whether the trainer is still up after 10 s, or when it ended and how.
+     * Ended within 8 s through GameHub's launcher (run.exe)? Try once more with Wine
+     * directly (the trainer as Wine's own argument).
+     */
+    private static void watch(Process proc, String[] cmd, String[] env, File output, File note, String winPath) {
+        new Thread(() -> {
+            try {
+                long t0 = System.currentTimeMillis();
+                boolean ended = proc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+                long secs = (System.currentTimeMillis() - t0) / 1000;
+                if (!ended) {
+                    appendNote(note, "result: still running after 10 s (" + pids().size() + " trainer process(es))");
+                    return;
+                }
+                appendNote(note, "result: ended after " + secs + " s with exit code " + proc.exitValue());
+                int runIdx = -1;
+                for (int i = 0; i < cmd.length; i++) {
+                    if (cmd[i].toLowerCase(Locale.US).contains("run.exe")) runIdx = i;
+                }
+                if (secs >= 8 || runIdx < 0 || !pids().isEmpty()) return;
+                String[] direct = new String[cmd.length - 1];
+                for (int i = 0, j = 0; i < cmd.length; i++) if (i != runIdx) direct[j++] = cmd[i];
+                appendNote(note, "retry without the launcher:\n  " + String.join("\n  ", direct));
+                Process p2 = launch(direct, env, output, true);
+                synchronized (BhTrainerProgram.class) {
+                    startedAt = System.currentTimeMillis();
+                }
+                boolean ended2 = p2.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+                appendNote(note, ended2 ? "retry: ended with exit code " + p2.exitValue()
+                        : "retry: still running after 10 s (" + pids().size() + " trainer process(es))");
+            } catch (Throwable t) {
+                appendNote(note, "watch failed: " + t);
+            }
+        }, "BhTrainerWatch").start();
     }
 
     // ── Auto-start ───────────────────────────────────────────────────────────

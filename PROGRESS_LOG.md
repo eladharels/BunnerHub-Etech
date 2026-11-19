@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [diag] — Trainer programs: why no window appears (2026-11-19)
+- Device report (Sleeping Dogs): Start said "Starting…" but no trainer window showed. `trainer-launch.txt` shows GameHub's game command: `linker64 …/opt/wine_proton11.0-arm64x/arm64-v8a/bin/wine z:\\…\\usr\\embedded\\run.exe_v16045985 e:\\games\\Sleeping Dogs Pack\\DE\\sdhdship.exe` (working dir `files/usr`); the trainer ran the same with `C:\\bh_trainer\\…Trainer.exe`.
+- Open: the trainer exits at once (GameHub's `run.exe` launcher?), runs with its window hidden under the game's direct rendering, or the copy went to another prefix.
+- This build: the prefix comes from the game's own launch environment (`WINEPREFIX`); trainer output with `WINEDEBUG=err+all,fixme-all` goes to `logs/trainer-output.log`; `trainer-launch.txt` gains the prefix, the copy's size and a result line (still running after 10 s, or exit code and time); an exit within 8 s through `run.exe` retries once with Wine directly (no launcher) and notes that too.
+
 ### [fix] — Trainer programs start the way GameHub starts the game (2026-11-19)
 - Device report (Sleeping Dogs): Find online now downloads and saves the trainer, but Start failed with "Launch failed: wine binary not found". `BhWineLaunchHelper` looks for `wineserver` / `wine64-preloader` processes, but GameHub runs everything as `/system/bin/linker64 <launcher…> <program>` from the image fs root (`ProgramLauncher.e()`).
 - `BhTrainerProgram.recordLaunch` (from `BhWineLog.command`) keeps the argv and environment of the launch that runs the game's .exe (last `.exe` argument that isn't a Wine program or the trainer); `BhWineLog.workDir` (new call in the build.yml "Wine log capture" patch, `v3` = image fs root) keeps the working directory. Start runs the same command with the game's `.exe` (and its arguments) replaced by `C:\\bh_trainer\\<trainer>.exe`, same environment and directory, output to /dev/null. Each start writes `/sdcard/BunnerHub-Etech/logs/trainer-launch.txt` (game and trainer commands) for troubleshooting.
