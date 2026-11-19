@@ -109,7 +109,10 @@ public final class BhTrainerPanel {
         unknown.setOnClickListener(v -> runScan(BhTrainer.Scan.UNKNOWN, false));
         Button reset = button("Reset", false);
         reset.setOnClickListener(v -> {
-            BhTrainer.clearResults();
+            if (busy || !BhTrainer.clearResults()) {
+                toast("Wait for the search to finish");
+                return;
+            }
             showResults();
         });
         buttons.addView(first, new LinearLayout.LayoutParams(0, -2, 1f));
@@ -176,7 +179,10 @@ public final class BhTrainerPanel {
     private static void cycleType() {
         BhTrainer.Type[] all = BhTrainer.Type.values();
         BhTrainer.Type next = all[(BhTrainer.type().ordinal() + 1) % all.length];
-        BhTrainer.setType(next);
+        if (busy || !BhTrainer.setType(next)) {
+            toast("Wait for the search to finish");
+            return;
+        }
         typeButton.setText(next.label);
         showResults();
     }
@@ -207,15 +213,16 @@ public final class BhTrainerPanel {
         }
         double v = typed == null ? 0 : typed;
         busy = true;
-        if (kind == BhTrainer.Scan.UNKNOWN) {
-            status.setText(String.format(Locale.US, "Saving a copy of the game's memory (%,d MB)…",
-                    BhTrainer.snapshotSize() >> 20));
-        } else {
-            status.setText(next ? "Comparing (" + kind.label + ")…" : "Searching the game's memory…");
-        }
+        status.setText(kind == BhTrainer.Scan.UNKNOWN ? "Saving a copy of the game's memory…"
+                : next ? "Comparing (" + kind.label + ")…" : "Searching the game's memory…");
         new Thread(() -> {
             String error = null;
             try {
+                if (kind == BhTrainer.Scan.UNKNOWN) {
+                    long mb = BhTrainer.snapshotSize() >> 20;
+                    ui.post(() -> status.setText(String.format(Locale.US,
+                            "Saving a copy of the game's memory (%,d MB)…", mb)));
+                }
                 BhTrainer.Progress p = pct -> ui.post(() -> status.setText(
                         (kind == BhTrainer.Scan.UNKNOWN ? "Saving memory… " : "Searching… ") + pct + "%"));
                 if (next) BhTrainer.nextScan(kind, v, p);

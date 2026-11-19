@@ -16,7 +16,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -42,8 +41,11 @@ import java.util.Locale;
 public final class BhTrainer {
 
     private static final String TAG = "BhTrainer";
-    /** Results kept from a first scan; more means "search a rarer value". */
-    static final int MAX_RESULTS = 4_000_000;
+    /**
+     * Results kept as a list (address + previous value, 12 bytes each); more
+     * means "search a rarer value", or stay in snapshot mode.
+     */
+    static final int MAX_RESULTS = 2_000_000;
     private static final int CHUNK = 1 << 20;
     private static final long FREEZE_MS = 100;
 
@@ -116,7 +118,7 @@ public final class BhTrainer {
                 best = Integer.parseInt(p.getName());
             }
         }
-        if (best != pid) clearResults(); // a new game process: old addresses are meaningless
+        if (best != pid && !scanning) clearState(); // a new game process: old addresses are meaningless
         pid = best;
         return pid;
     }
@@ -130,8 +132,9 @@ public final class BhTrainer {
             unfreezeAll();
             entries.clear();
             entries.addAll(loadEntries(ctx, id));
-            clearResults();
+            if (!scanning) clearState();
         }
+        deleteLeftovers();
         gamePid();
     }
 
@@ -141,10 +144,15 @@ public final class BhTrainer {
     //  * LIST: sorted addresses (results) with the value each had at the last
     //    scan (prev). Used after an exact first scan, and once a compare scan
     //    leaves at most MAX_RESULTS.
-    //  * SNAPSHOT: after an "unknown value" first scan. A copy of every
-    //    writable region is kept in a cache file (previous values), and the
-    //    surviving slots are a bit map per region (alive; null = all alive).
-    //    Each compare scan updates the file in place and the bit maps.
+    //  * SNAPSHOT: after an "unknown value" first scan. Two cache files: a copy
+    //    of every writable region (the previous values) and one bit per slot
+    //    (still a candidate or not; unreadable memory starts as 0). Compare
+    //    scans go through both a chunk at a time and update them in place, so
+    //    memory use doesn't grow with the game's size.
+    //
+    // Only one scan runs at a time; Reset and type changes are refused while
+    // one runs. A failed new search keeps the previous results; a compare that
+    // fails partway through a snapshot clears it (the files would be mixed).
 
     /** What a scan compares against. */
     public enum Scan {
@@ -158,42 +166,79 @@ public final class BhTrainer {
         }
     }
 
-    private static double[] prev = new double[0];
-    private static long candidates;
-    private static boolean snapshotMode;
-    private static File snapFile;
-    private static List<long[]> snapRegions;
-    private static long[] snapOffsets;
-    private static BitSet[] alive;
-    private static Context appCtx;
+    private static final String SNAP_DATA = "bh_trainer_snapshot.bin";
+    private static final String SNAP_BITS = "bh_trainer_snapshot.bits";
+    private static final String NEW_SUFFIX = ".new";
 
-    static synchronized void setType(Type t) {
-        if (t != type) clearResults();
+    private static double[] prev = new double[0];
+    private static boolean snapshotMode;
+    private static Snapshot snap;
+    private static Context appCtx;
+    private static volatile boolean scanning;
+
+    /** Layout of the snapshot files. */
+    private static final class Snapshot {
+        Type type;
+        List<long[]> regions;
+        long[] dataOffsets;   // byte offset of each region in the data file
+        long[] bitsOffsets;   // byte offset of each region in the bits file
+        long[] alive;         // candidates left per region
+        long candidates;
+        File data, bits;
+    }
+
+    static synchronized boolean setType(Type t) {
+        if (scanning) return false;
+        if (t != type) clearState();
         type = t;
+        return true;
     }
 
     static Type type() {
         return type;
     }
 
-    static synchronized void clearResults() {
+    static boolean scanning() {
+        return scanning;
+    }
+
+    /** Reset: drops the results. False while a scan runs. */
+    static synchronized boolean clearResults() {
+        if (scanning) return false;
+        clearState();
+        return true;
+    }
+
+    private static synchronized void clearState() {
         results = new int[0];
         prev = new double[0];
         resultCount = 0;
-        candidates = 0;
         truncated = false;
         scanned = false;
         snapshotMode = false;
-        snapRegions = null;
-        snapOffsets = null;
-        alive = null;
-        if (snapFile != null && snapFile.exists() && !snapFile.delete()) Log.w(TAG, "cannot delete " + snapFile);
-        snapFile = null;
+        if (snap != null) {
+            delete(snap.data);
+            delete(snap.bits);
+        }
+        snap = null;
+    }
+
+    /** Snapshot files a killed process left behind. */
+    private static synchronized void deleteLeftovers() {
+        if (appCtx == null || snapshotMode || scanning) return;
+        File dir = appCtx.getCacheDir();
+        for (String n : new String[]{SNAP_DATA, SNAP_BITS, SNAP_DATA + NEW_SUFFIX, SNAP_BITS + NEW_SUFFIX}) {
+            delete(new File(dir, n));
+        }
+    }
+
+    private static void delete(File f) {
+        if (f != null && f.exists() && !f.delete()) Log.w(TAG, "cannot delete " + f);
     }
 
     /** Number of possible addresses left (both modes). */
     static synchronized long resultCount() {
-        return snapshotMode ? candidates : resultCount;
+        return snapshotMode ? snap.candidates : resultCount;
     }
 
     /** True when {@link #result} can be used (a list of addresses, not a memory snapshot). */
@@ -214,6 +259,18 @@ public final class BhTrainer {
         return results[i] & 0xFFFFFFFFL;
     }
 
+    /** Bytes an unknown-value search will save. Call off the UI thread. */
+    static long snapshotSize() {
+        int p = gamePid();
+        if (p < 0) return 0;
+        long total = 0;
+        try {
+            for (long[] r : writableRegions(p)) total += r[1] - r[0];
+        } catch (Exception ignored) {
+        }
+        return total;
+    }
+
     /** Every aligned value equal to {@code value} in the game's writable memory below 4 GB. */
     static void firstScan(double value, Progress progress) throws Exception {
         firstScan(Scan.EXACT, value, progress);
@@ -224,15 +281,59 @@ public final class BhTrainer {
         nextScan(Scan.EXACT, value, progress);
     }
 
+    private static synchronized void beginScan() {
+        if (scanning) throw new IllegalStateException("A search is already running");
+        scanning = true;
+    }
+
+    private static void endScan() {
+        scanning = false;
+    }
+
     /** A new search: EXACT (value) or UNKNOWN (remember everything). */
     static void firstScan(Scan kind, double value, Progress progress) throws Exception {
         int p = gamePid();
         if (p < 0) throw new IllegalStateException("No game is running");
-        clearResults();
-        if (kind == Scan.UNKNOWN) {
-            snapshotScan(p, progress);
-            return;
+        beginScan();
+        try {
+            if (kind == Scan.UNKNOWN) snapshotScan(p, progress);
+            else exactScan(p, value, progress);
+        } catch (OutOfMemoryError e) {
+            throw new IllegalStateException("Not enough memory for this search. Try a typed value.");
+        } finally {
+            endScan();
         }
+    }
+
+    /** Narrows the results: EXACT (value), DECREASED, INCREASED, CHANGED, UNCHANGED. */
+    static void nextScan(Scan kind, double value, Progress progress) throws Exception {
+        if (kind == Scan.UNKNOWN) throw new IllegalArgumentException("Unknown value is a new search");
+        int p = gamePid();
+        if (p < 0) throw new IllegalStateException("No game is running");
+        beginScan();
+        boolean wasSnapshot = snapshotMode;
+        try {
+            if (wasSnapshot) snapshotCompare(p, kind, value, progress);
+            else listCompare(p, kind, value, progress);
+        } catch (Throwable e) {
+            if (wasSnapshot) {
+                // The files may be half updated: their values can't be trusted.
+                synchronized (BhTrainer.class) {
+                    clearState();
+                }
+                throw new IllegalStateException("The search stopped partway and its results were lost; "
+                        + "start again (" + (e.getMessage() != null ? e.getMessage() : e.toString()) + ")");
+            }
+            if (e instanceof OutOfMemoryError) {
+                throw new IllegalStateException("Not enough memory for this search");
+            }
+            throw e;
+        } finally {
+            endScan();
+        }
+    }
+
+    private static void exactScan(int p, double value, Progress progress) throws Exception {
         Type t = type;
         List<long[]> regions = writableRegions(p);
         long total = 0;
@@ -249,9 +350,10 @@ public final class BhTrainer {
             for (long[] r : regions) {
                 for (long base = r[0]; base < r[1]; base += CHUNK) {
                     int len = (int) Math.min(CHUNK, r[1] - base);
-                    int n = readAt(mem, base, buf, len);
+                    // A few extra bytes so values crossing the chunk end are checked too.
+                    int n = readAt(mem, base, buf, (int) Math.min(len + t.size - t.align, r[1] - base));
                     ByteBuffer bb = ByteBuffer.wrap(buf, 0, n).order(ByteOrder.LITTLE_ENDIAN);
-                    for (int off = 0; off + t.size <= n; off += t.align) {
+                    for (int off = 0; off < len && off + t.size <= n; off += t.align) {
                         if (!matches(t, bb, off, value)) continue;
                         if (count == found.length) {
                             if (count >= MAX_RESULTS) {
@@ -271,6 +373,7 @@ public final class BhTrainer {
             }
         }
         synchronized (BhTrainer.class) {
+            clearState(); // only now: a failed search keeps the old results
             results = found;
             prev = vals;
             resultCount = count;
@@ -281,122 +384,149 @@ public final class BhTrainer {
                 + " in " + regions.size() + " regions, " + (total >> 20) + " MB");
     }
 
-    /** Narrows the results: EXACT (value), DECREASED, INCREASED, CHANGED, UNCHANGED. */
-    static void nextScan(Scan kind, double value, Progress progress) throws Exception {
-        if (kind == Scan.UNKNOWN) throw new IllegalArgumentException("Unknown value is a new search");
-        int p = gamePid();
-        if (p < 0) throw new IllegalStateException("No game is running");
-        if (snapshotMode) snapshotCompare(p, kind, value, progress);
-        else listCompare(p, kind, value, progress);
-    }
-
-    /** Bytes an unknown-value search will save (free storage needed). */
-    static long snapshotSize() {
-        int p = gamePid();
-        if (p < 0) return 0;
-        long total = 0;
-        try {
-            for (long[] r : writableRegions(p)) total += r[1] - r[0];
-        } catch (Exception ignored) {
-        }
-        return total;
-    }
-
     private static void snapshotScan(int p, Progress progress) throws Exception {
         Type t = type;
         Context ctx = appCtx;
         if (ctx == null) throw new IllegalStateException("Trainer not attached");
         List<long[]> regions = writableRegions(p);
-        long total = 0;
-        long[] offsets = new long[regions.size()];
-        long slots = 0;
+        Snapshot s = new Snapshot();
+        s.type = t;
+        s.regions = regions;
+        s.dataOffsets = new long[regions.size()];
+        s.bitsOffsets = new long[regions.size()];
+        s.alive = new long[regions.size()];
+        long total = 0, bitsTotal = 0;
         for (int i = 0; i < regions.size(); i++) {
             long[] r = regions.get(i);
-            offsets[i] = total;
+            s.dataOffsets[i] = total;
+            s.bitsOffsets[i] = bitsTotal;
             total += r[1] - r[0];
-            slots += slotCount(r, t);
+            bitsTotal += (slotCount(r, t) + 7) / 8;
         }
-        File file = new File(ctx.getCacheDir(), "bh_trainer_snapshot.bin");
-        long free = ctx.getCacheDir().getUsableSpace() + (file.exists() ? file.length() : 0);
-        if (free < total + (256L << 20)) {
+        File dir = ctx.getCacheDir();
+        File data = new File(dir, SNAP_DATA + NEW_SUFFIX);
+        File bits = new File(dir, SNAP_BITS + NEW_SUFFIX);
+        if (dir.getUsableSpace() < total + bitsTotal + (256L << 20)) {
             throw new IllegalStateException(String.format(Locale.US,
-                    "Not enough free storage: an unknown-value search needs about %d MB", (total >> 20) + 256));
+                    "Not enough free storage: an unknown-value search needs about %d MB",
+                    ((total + bitsTotal) >> 20) + 256));
         }
         byte[] buf = new byte[CHUNK];
+        byte[] bitBuf = new byte[CHUNK / t.align / 8 + 1];
         long done = 0;
         try (RandomAccessFile mem = new RandomAccessFile("/proc/" + p + "/mem", "r");
-             RandomAccessFile out = new RandomAccessFile(file, "rw")) {
+             RandomAccessFile out = new RandomAccessFile(data, "rw");
+             RandomAccessFile bout = new RandomAccessFile(bits, "rw")) {
             out.setLength(0);
             out.setLength(total);
+            bout.setLength(0);
+            bout.setLength(bitsTotal);
             for (int i = 0; i < regions.size(); i++) {
                 long[] r = regions.get(i);
+                long slots = slotCount(r, t);
                 for (long base = r[0]; base < r[1]; base += CHUNK) {
                     int len = (int) Math.min(CHUNK, r[1] - base);
                     int n = readAt(mem, base, buf, len);
-                    out.seek(offsets[i] + (base - r[0]));
-                    out.write(buf, 0, n); // unreadable tail stays zero
+                    out.seek(s.dataOffsets[i] + (base - r[0]));
+                    out.write(buf, 0, n); // an unreadable tail stays 0 in the file...
+                    long firstSlot = (base - r[0]) / t.align;
+                    int chunkSlots = (int) Math.min(len / t.align, slots - firstSlot);
+                    if (chunkSlots <= 0) continue;
+                    Arrays.fill(bitBuf, 0, (chunkSlots + 7) / 8, (byte) 0);
+                    long alive = 0;
+                    for (int j = 0; j < chunkSlots; j++) {
+                        // ...and its slots are not candidates (no previous value).
+                        // A slot crossing into the next chunk counts if this chunk was fully read.
+                        if (j * t.align + t.size > n && n < len) continue;
+                        bitBuf[j >> 3] |= (byte) (1 << (j & 7));
+                        alive++;
+                    }
+                    bout.seek(s.bitsOffsets[i] + firstSlot / 8);
+                    bout.write(bitBuf, 0, (chunkSlots + 7) / 8);
+                    s.alive[i] += alive;
+                    s.candidates += alive;
                     done += len;
                     if (progress != null && total > 0) progress.onProgress((int) (done * 100 / total));
                 }
             }
-        } catch (Exception e) {
-            if (!file.delete()) Log.w(TAG, "cannot delete " + file);
+        } catch (Throwable e) {
+            delete(data);
+            delete(bits);
             throw e;
         }
         synchronized (BhTrainer.class) {
-            snapFile = file;
-            snapRegions = regions;
-            snapOffsets = offsets;
-            alive = null;
-            candidates = slots;
+            clearState(); // only now: a failed search keeps the old results
+            File d = new File(dir, SNAP_DATA);
+            File b = new File(dir, SNAP_BITS);
+            if (!data.renameTo(d) || !bits.renameTo(b)) {
+                delete(data);
+                delete(bits);
+                throw new IllegalStateException("Could not save the memory copy");
+            }
+            s.data = d;
+            s.bits = b;
+            snap = s;
             snapshotMode = true;
             scanned = true;
         }
-        Log.i(TAG, "unknown scan " + t + ": " + slots + " slots, " + (total >> 20) + " MB saved");
+        Log.i(TAG, "unknown scan " + t + ": " + s.candidates + " slots, " + (total >> 20) + " MB saved");
     }
 
     private static void snapshotCompare(int p, Scan kind, double value, Progress progress) throws Exception {
-        Type t = type;
-        List<long[]> regions = snapRegions;
-        long[] offsets = snapOffsets;
-        BitSet[] live = alive != null ? alive : new BitSet[regions.size()];
-        boolean allAlive = alive == null;
+        Snapshot s = snap;
+        Type t = s.type;
+        List<long[]> regions = s.regions;
         long total = 0;
-        for (long[] r : regions) total += r[1] - r[0];
+        for (int i = 0; i < regions.size(); i++) if (s.alive[i] > 0) total += regions.get(i)[1] - regions.get(i)[0];
 
-        int[] listA = new int[1 << 16];
-        double[] listV = new double[1 << 16];
+        int[] listA = new int[1 << 12];
+        double[] listV = new double[1 << 12];
         boolean listOk = true;
         long kept = 0;
+        long[] aliveNow = new long[regions.size()];
         long done = 0;
-        byte[] cur = new byte[CHUNK];
-        byte[] old = new byte[CHUNK];
+        int extra = t.size - t.align; // bytes past the chunk for values crossing its end
+        byte[] cur = new byte[CHUNK + extra];
+        byte[] old = new byte[CHUNK + extra];
+        byte[] bitBuf = new byte[CHUNK / t.align / 8 + 1];
         try (RandomAccessFile mem = new RandomAccessFile("/proc/" + p + "/mem", "r");
-             RandomAccessFile snap = new RandomAccessFile(snapFile, "rw")) {
+             RandomAccessFile data = new RandomAccessFile(s.data, "rw");
+             RandomAccessFile bits = new RandomAccessFile(s.bits, "rw")) {
             for (int ri = 0; ri < regions.size(); ri++) {
+                if (s.alive[ri] == 0) continue;
                 long[] r = regions.get(ri);
-                BitSet was = allAlive ? null : live[ri];
-                if (was != null && was.isEmpty()) {
-                    done += r[1] - r[0];
-                    continue;
-                }
-                BitSet now = new BitSet((int) Math.min(Integer.MAX_VALUE, slotCount(r, t)));
+                long slots = slotCount(r, t);
                 for (long base = r[0]; base < r[1]; base += CHUNK) {
                     int len = (int) Math.min(CHUNK, r[1] - base);
-                    long fileAt = offsets[ri] + (base - r[0]);
-                    int got = readAt(mem, base, cur, len);
-                    snap.seek(fileAt);
-                    snap.readFully(old, 0, len);
+                    int want = (int) Math.min(len + extra, r[1] - base);
+                    long firstSlot = (base - r[0]) / t.align;
+                    int chunkSlots = (int) Math.min(len / t.align, slots - firstSlot);
+                    long fileAt = s.dataOffsets[ri] + (base - r[0]);
+                    int got = readAt(mem, base, cur, want);
+                    data.seek(fileAt);
+                    data.readFully(old, 0, want);
+                    int bitLen = (Math.max(chunkSlots, 0) + 7) / 8;
+                    long bitAt = s.bitsOffsets[ri] + firstSlot / 8;
+                    bits.seek(bitAt);
+                    bits.readFully(bitBuf, 0, bitLen);
                     ByteBuffer cb = ByteBuffer.wrap(cur, 0, got).order(ByteOrder.LITTLE_ENDIAN);
-                    ByteBuffer ob = ByteBuffer.wrap(old, 0, len).order(ByteOrder.LITTLE_ENDIAN);
-                    int firstSlot = (int) ((base - r[0]) / t.align);
-                    for (int off = 0; off + t.size <= got; off += t.align) {
-                        int slot = firstSlot + off / t.align;
-                        if (was != null && !was.get(slot)) continue;
-                        double c = valueAt(t, cb, off);
-                        if (!keep(kind, t, cb, off, c, valueAt(t, ob, off), value)) continue;
-                        now.set(slot);
+                    ByteBuffer ob = ByteBuffer.wrap(old, 0, want).order(ByteOrder.LITTLE_ENDIAN);
+                    for (int j = 0; j < chunkSlots; j++) {
+                        int bit = 1 << (j & 7);
+                        if ((bitBuf[j >> 3] & bit) == 0) continue;
+                        int off = j * t.align;
+                        boolean ok = false;
+                        double c = 0;
+                        if (off + t.size <= got) {
+                            c = valueAt(t, cb, off);
+                            ok = keep(kind, t, cb, off, c, valueAt(t, ob, off), value);
+                        }
+                        if (!ok) {
+                            bitBuf[j >> 3] &= (byte) ~bit;
+                            continue;
+                        }
                         kept++;
+                        aliveNow[ri]++;
                         if (listOk) {
                             if (kept > MAX_RESULTS) {
                                 listOk = false;
@@ -414,33 +544,29 @@ public final class BhTrainer {
                             }
                         }
                     }
-                    if (got > 0) {
-                        snap.seek(fileAt);
-                        snap.write(cur, 0, got);
+                    bits.seek(bitAt);
+                    bits.write(bitBuf, 0, bitLen);
+                    int back = Math.min(got, len); // this chunk's own bytes; the next one writes its own
+                    if (back > 0) {
+                        data.seek(fileAt);
+                        data.write(cur, 0, back);
                     }
                     done += len;
                     if (progress != null && total > 0) progress.onProgress((int) (done * 100 / total));
                 }
-                live[ri] = now; // in place: the old map of this region is freed now
             }
         }
         synchronized (BhTrainer.class) {
             if (listOk) {
                 // Few enough: switch to a plain list and drop the snapshot.
-                File f = snapFile;
-                snapshotMode = false;
-                snapRegions = null;
-                snapOffsets = null;
-                alive = null;
-                snapFile = null;
-                if (f != null && !f.delete()) Log.w(TAG, "cannot delete " + f);
+                clearState();
                 results = listA;
                 prev = listV;
                 resultCount = (int) kept;
-                truncated = false;
+                scanned = true;
             } else {
-                alive = live;
-                candidates = kept;
+                s.alive = aliveNow;
+                s.candidates = kept;
             }
         }
         Log.i(TAG, "snapshot scan " + kind + ": " + kept + (listOk ? " (list)" : " (snapshot)"));
