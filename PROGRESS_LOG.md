@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — Trainer programs start the way GameHub starts the game (2026-11-19)
+- Device report (Sleeping Dogs): Find online now downloads and saves the trainer, but Start failed with "Launch failed: wine binary not found". `BhWineLaunchHelper` looks for `wineserver` / `wine64-preloader` processes, but GameHub runs everything as `/system/bin/linker64 <launcher…> <program>` from the image fs root (`ProgramLauncher.e()`).
+- `BhTrainerProgram.recordLaunch` (from `BhWineLog.command`) keeps the argv and environment of the launch that runs the game's .exe (last `.exe` argument that isn't a Wine program or the trainer); `BhWineLog.workDir` (new call in the build.yml "Wine log capture" patch, `v3` = image fs root) keeps the working directory. Start runs the same command with the game's `.exe` (and its arguments) replaced by `C:\\bh_trainer\\<trainer>.exe`, same environment and directory, output to /dev/null. Each start writes `/sdcard/BunnerHub-Etech/logs/trainer-launch.txt` (game and trainer commands) for troubleshooting.
+- Checked locally: command swap for direct-Wine and FEX + `explorer /desktop` style launches; Wine programs and the trainer are never taken for the game; the patch applies and apktool reassembles. Not yet device-tested.
+
 ### [fix] — In-game browser: downloads the site refuses to serve twice (2026-11-19)
 - Device report: Find online for trainers on flingtrainer.com (Sleeping Dogs) ended in "Download failed (HTTP 403)". The browser's DownloadListener only gives a URL, and fetching it a second time (without the page as Referer, or with a single-use link) is refused.
 - `BhCheatBrowser`: `shouldInterceptRequest` makes top-level GETs that look like downloads (`/download(s)/`, `?download=`, `download.php`, `file.php`, `.zip/.exe/.ct/.rar/.7z`) itself, with the browser's request headers (Referer, User-Agent, Accept…) and cookies, and keeps `Set-Cookie`. A file (attachment, or zip / exe / rar / 7z / table bytes) is handed straight to the import and the browser shows "Downloaded. Importing…"; a page is given back to the browser as is; any error → the browser loads it itself. The DownloadListener path remains as fallback and now sends the page as Referer, with a clearer 403 message.

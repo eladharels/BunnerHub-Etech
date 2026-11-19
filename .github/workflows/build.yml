@@ -946,7 +946,9 @@ jobs:
               '    invoke-static {v2}, Lapp/revanced/extension/gamehub/BhWineLog;->env([Ljava/lang/String;)[Ljava/lang/String;\n'
               '    move-result-object v2\n'
               '    invoke-static {v1, v2}, Lapp/revanced/extension/gamehub/BhWineLog;->command([Ljava/lang/String;[Ljava/lang/String;)[Ljava/lang/String;\n'
-              '    move-result-object v1\n',
+              '    move-result-object v1\n'
+              '    # v3 = the image fs root, the launch\'s working directory (for BhTrainerProgram)\n'
+              '    invoke-static {v3}, Lapp/revanced/extension/gamehub/BhWineLog;->workDir(Ljava/io/File;)V\n',
               'ProgramLauncher.e(): route argv/env through BhWineLog'
           )
 

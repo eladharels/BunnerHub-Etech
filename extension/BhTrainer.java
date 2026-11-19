@@ -94,7 +94,7 @@ public final class BhTrainer {
 
     // ── Game process ─────────────────────────────────────────────────────────
 
-    private static final String[] SYSTEM_EXES = {
+    static final String[] SYSTEM_EXES = {
             "services.exe", "winedevice.exe", "plugplay.exe", "svchost.exe", "explorer.exe",
             "rpcss.exe", "tabtip.exe", "winmonitor", "conhost.exe", "start.exe", "run.exe",
             "winedbg", "wineboot.exe", "steam.exe",

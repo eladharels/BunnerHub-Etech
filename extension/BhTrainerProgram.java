@@ -55,7 +55,51 @@ public final class BhTrainerProgram {
     private static boolean waiting;
     private static long startedAt;                   // last start(), for the grace period below
 
+    // How GameHub started the game: "/system/bin/linker64 <Wine launcher…> <game.exe> [args]",
+    // with its environment, from the image fs root (ProgramLauncher.e(), via BhWineLog).
+    private static volatile String[] gameArgv;
+    private static volatile String[] gameEnv;
+    private static volatile File workDir;
+
     private BhTrainerProgram() {}
+
+    /** BhWineLog.command: remember the launch that runs the game's .exe. */
+    static void recordLaunch(String[] argv, String[] env) {
+        try {
+            if (argv == null || exeIndex(argv) < 0) return;
+            gameArgv = argv.clone();
+            gameEnv = env == null ? null : env.clone();
+            Log.i(TAG, "game launch: " + String.join(" ", argv));
+        } catch (Throwable t) {
+            Log.w(TAG, "recordLaunch failed", t);
+        }
+    }
+
+    static void recordWorkDir(File dir) {
+        workDir = dir;
+    }
+
+    /** Index of the game .exe argument (not a Wine program, not our trainer), or -1. */
+    static int exeIndex(String[] argv) {
+        for (int i = argv.length - 1; i >= 1; i--) {
+            String a = argv[i] == null ? "" : argv[i].toLowerCase(Locale.US);
+            if (!a.contains(".exe") || a.contains("bh_trainer")) continue;
+            boolean system = false;
+            for (String s : BhTrainer.SYSTEM_EXES) if (a.contains(s)) system = true;
+            if (!system) return i;
+        }
+        return -1;
+    }
+
+    /** The game's launch command with the game's .exe swapped for the trainer (Windows path). */
+    static String[] trainerCommand(String[] argv, String winPath) {
+        int i = exeIndex(argv);
+        if (i < 0) return null;
+        String[] out = new String[i + 1];
+        System.arraycopy(argv, 0, out, 0, i);
+        out[i] = winPath; // the game's own arguments after its .exe are dropped
+        return out;
+    }
 
     // ── Per-game settings ───────────────────────────────────────────────────
 
@@ -228,9 +272,31 @@ public final class BhTrainerProgram {
         String rel = exe.getAbsolutePath().substring(dir(id).getAbsolutePath().length() + 1);
         File target = new File(dst, rel);
         if (!target.isFile()) throw new IllegalStateException("Copying the trainer failed");
-        BhWineLaunchHelper.launchExe(ctx, target.getAbsolutePath());
+        String[] argv = gameArgv;
+        if (argv == null) {
+            throw new IllegalStateException("The app didn't see how this game was started. "
+                    + "Restart the game once, then try again.");
+        }
+        String[] cmd = trainerCommand(argv, "C:\\bh_trainer\\" + rel.replace('/', '\\'));
+        if (cmd == null) throw new IllegalStateException("Can't find the game in its launch command");
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        if (workDir != null) pb.directory(workDir);
+        String[] env = gameEnv;
+        if (env != null) {
+            pb.environment().clear();
+            for (String kv : env) {
+                int eq = kv.indexOf('=');
+                if (eq > 0) pb.environment().put(kv.substring(0, eq), kv.substring(eq + 1));
+            }
+        }
+        File devNull = new File("/dev/null");
+        pb.redirectOutput(ProcessBuilder.Redirect.to(devNull));
+        pb.redirectError(ProcessBuilder.Redirect.to(devNull));
+        pb.redirectInput(ProcessBuilder.Redirect.from(devNull));
+        writeLaunchNote(cmd, argv);
+        pb.start();
         startedAt = System.currentTimeMillis();
-        Log.i(TAG, "started " + target);
+        Log.i(TAG, "started: " + String.join(" ", cmd));
         return "Starting " + exe.getName() + "…";
     }
 
@@ -278,6 +344,19 @@ public final class BhTrainerProgram {
             } catch (InterruptedException ignored) {
                 return;
             }
+        }
+    }
+
+    /** /sdcard/BunnerHub-Etech/logs/trainer-launch.txt: the commands used, for troubleshooting. */
+    private static void writeLaunchNote(String[] cmd, String[] gameCmd) {
+        try {
+            File dir = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs");
+            if (!dir.isDirectory() && !dir.mkdirs()) return;
+            String note = "time: " + new java.util.Date() + "\nworking dir: " + workDir
+                    + "\ngame command:\n  " + String.join("\n  ", gameCmd)
+                    + "\ntrainer command:\n  " + String.join("\n  ", cmd) + "\n";
+            write(new File(dir, "trainer-launch.txt"), note.getBytes("UTF-8"));
+        } catch (Throwable ignored) {
         }
     }
 

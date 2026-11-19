@@ -72,8 +72,14 @@ public final class BhWineLog {
         }
     }
 
+    /** ProgramLauncher.e(): the launch's working directory (the image fs root). */
+    public static void workDir(java.io.File dir) {
+        BhTrainerProgram.recordWorkDir(dir);
+    }
+
     /** Wraps argv so its stdout and stderr are appended to the session log. */
     public static String[] command(String[] argv, String[] env) {
+        BhTrainerProgram.recordLaunch(argv, env);
         // Mark where this session starts in /sdcard/wine.log, for crash reports.
         BhCrashReporter.onLaunch();
         try {
