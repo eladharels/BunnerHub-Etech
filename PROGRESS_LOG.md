@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Save backup and restore (2026-11-19)
+- Question (Elad, after finishing Prototype): does uninstalling delete saves? Finding: no for container saves. Upstream's container cleanup on uninstall (v2.8.4) was removed on 2026-04-03 (`2fd8007`), and GameHub's `UninstallGameHelper` deletes the game files, library entry and cover but not `virtual_containers/<gameId>/`. README corrected. Saves are still at risk if the app's data is cleared, and can't be reached with a file manager.
+- `extension/BhSaveBackup.java`, from `BhPlayTime.onDetail` (existing GameDetailActivity hook): a **💾 Saves** chip (top-right, 136 dp, under Known fix) when the game has a container or backups. Container id = server id if its container exists, else the local id. **Back up now** zips `drive_c/users` (as `users/`) and Steam `userdata` (as `steam_userdata/`) to `/sdcard/BunnerHub-Etech/saves/<name> (<id>)/saves-<yyyyMMdd-HHmmss>.zip`; skips temp / cache / shader-cache / NVIDIA / crash-dump folders; follows links once (canonical paths, so loops end); stops over 4 GB; keeps the newest 5. **Restore…** lists backups, confirms, backs up the current state, then unzips into the container (`../` entries skipped).
+- Checked locally on a fake container: save and Steam save included, Temp / D3DSCache skipped, a `..` link loop skipped, an overwritten save restored. Not yet device-tested.
+
 ### [feat] — Trainer programs: hide the trainer window, bring the game back (2026-11-19)
 - Device report (Prototype 2, FLiNG .rar trainer via 7-Zip): the trainer opened over the game and reports "Game is running, trainer is activated!", but it took the screen: the game went black behind it and GameHub's Wine has no taskbar or Alt+Tab to switch back.
 - `tools/bh_winctl.c`: a 17 KB Windows console program (mingw-w64, built by CI into `assets/bunnerhub-etech/bh_winctl.exe`, new build.yml step): `hide <match>` hides every visible window of processes whose image path contains <match>, `show <match>` shows and activates their titled windows (>50×50), `focus <match>` restores and activates the largest window; exit 0 handled / 1 none / 2 bad arguments.

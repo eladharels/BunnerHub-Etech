@@ -929,6 +929,10 @@ When a game is installed and launched, GameHub creates a Wine virtual container 
 
 **Not active:** BannerHub v2.8.4 added a cleanup that deleted this container on uninstall, but it was removed again on 2026-04-03 (upstream commit `2fd8007`, "the cleanup was causing issues"). GameHub's own uninstall (`UninstallGameHelper`) deletes the game files, library entry and cover, but not the container, so **saves kept in the container survive an uninstall** and come back if the game is installed again. Games that save inside their own install folder lose those saves with the game files. The container lives in the app's private storage, so it is lost if the app's data is cleared.
 
+### Save Backup
+
+A **💾 Saves** chip on each game's detail page (once the game has a container): **Back up now** zips the container's user folders (Documents, AppData, Saved Games, for all users) and Steam's `userdata` (Steam Cloud saves) to `/sdcard/BunnerHub-Etech/saves/<game> (<id>)/saves-<date>.zip`, leaving out caches and temp folders; the last 5 backups are kept. **Restore…** picks a backup, backs up the current state first, then puts the backup's files back into the container. Use it before uninstalling the app or clearing its data, or to keep saves safe. A game that was installed again needs one launch (to create its container) before restoring.
+
 ### UI Tweaks
 
 - The **"My"** tab in the bottom navigation bar is renamed to **"My Games"** for clarity.
