@@ -1099,8 +1099,10 @@ jobs:
           # A tiny Windows program run inside the game's Wine: hides a trainer's
           # window and brings the game back (GameHub's Wine has no taskbar or
           # Alt+Tab). See tools/bh_winctl.c and extension/BhTrainerProgram.java.
+          # Skip man-db's index rebuild (minutes on a fresh runner) and extra packages.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gcc-mingw-w64-x86-64 > /dev/null
+          sudo apt-get install -y -qq --no-install-recommends gcc-mingw-w64-x86-64 > /dev/null
           x86_64-w64-mingw32-gcc -municode -O2 -s -Wall -Werror \
             -o apktool_out/assets/bunnerhub-etech/bh_winctl.exe tools/bh_winctl.c -luser32
           ls -la apktool_out/assets/bunnerhub-etech/bh_winctl.exe
