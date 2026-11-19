@@ -4,6 +4,12 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Trainer programs: hide the trainer window, bring the game back (2026-11-19)
+- Device report (Prototype 2, FLiNG .rar trainer via 7-Zip): the trainer opened over the game and reports "Game is running, trainer is activated!", but it took the screen: the game went black behind it and GameHub's Wine has no taskbar or Alt+Tab to switch back.
+- `tools/bh_winctl.c`: a 17 KB Windows console program (mingw-w64, built by CI into `assets/bunnerhub-etech/bh_winctl.exe`, new build.yml step): `hide <match>` hides every visible window of processes whose image path contains <match>, `show <match>` shows and activates their titled windows (>50×50), `focus <match>` restores and activates the largest window; exit 0 handled / 1 none / 2 bad arguments.
+- `BhTrainerProgram`: `winctl()` copies the helper to `<prefix>/drive_c/bh_tools/` and runs it with the game's Wine and environment (≤ 30 s, output appended to `logs/winctl.log`). Once the trainer is up (still running after 10 s), `autoHide` retries `hide bh_trainer` every 2.5 s for 30 s, then `focus <game exe>` (from the recorded launch command), noting the result in `trainer-launch.txt`. Card: **Show trainer window** / **Back to the game**.
+- Checked locally: the helper compiles cleanly (-Wall); desktop Wine crashes on start in the build container, so it has not run under Wine yet. Not yet device-tested.
+
 ### [feat] — Trainer programs: .rar and .7z trainers via 7-Zip in the game's Wine (2026-11-19)
 - Device report: Sleeping Dogs' trainer imported and its cheats show; Prototype 2's FLiNG trainer is a `.rar` ("Prototype 2 v1.0 Plus 11 Trainer Fixed.rar"), which Android can't unpack.
 - `BhTrainerProgram.extractWithWine`: the first .rar/.7z installs 7-Zip (`7z2409-x64.msi`, from 7-zip.org, else the official ip7z GitHub mirror, into `drive_c/bh_tools/`) into the game's prefix with `msiexec /i … /qn`; then `C:\\Program Files\\7-Zip\\7z.exe x C:\\bh_trainer_dl\\archive.rar -oC:\\bh_trainer_dl\\out -y` with the game's Wine and environment (≤ 5 min each, output in `logs/extract.log`); the .exe is chosen as for zips (`chooseExe`, shared). Needs the game running (its recorded launch command). `installMono` shares `wineIndex`.

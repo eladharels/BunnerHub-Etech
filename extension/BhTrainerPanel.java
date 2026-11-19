@@ -466,6 +466,16 @@ public final class BhTrainerPanel {
         pad.setOnClickListener(v -> keyPad());
         programBox.addView(pad, margins(0, 8, 0, 0));
 
+        // The trainer's window: GameHub's Wine can't switch windows, so the app does it.
+        LinearLayout winRow = new LinearLayout(ctx);
+        Button showWin = button("Show trainer window", false);
+        showWin.setOnClickListener(v -> windowAction(true));
+        Button backWin = button("Back to the game", false);
+        backWin.setOnClickListener(v -> windowAction(false));
+        winRow.addView(showWin, new LinearLayout.LayoutParams(0, -2, 1f));
+        winRow.addView(backWin, weightMargins(1f, 8));
+        programBox.addView(winRow, margins(0, 8, 0, 0));
+
         LinearLayout row2 = new LinearLayout(ctx);
         Button other = button("Find another", false);
         other.setOnClickListener(v -> programFindOnline());
@@ -487,8 +497,10 @@ public final class BhTrainerPanel {
         programBox.addView(row2, margins(0, 8, 0, 0));
 
         TextView note = text(11, GREY, false);
-        note.setText("The trainer's window opens over the game: switch cheats there, then close this menu. "
-                + "Cheats that change values usually work; some others may not work under emulation.");
+        note.setText("The trainer runs in the background: its window is hidden a few seconds after it starts "
+                + "and the game comes back. Use the cheat switches below. Show trainer window brings it up; "
+                + "Back to the game puts it away. Cheats that change values usually work; some others may not "
+                + "work under emulation.");
         programBox.addView(note, margins(0, 8, 0, 0));
         refreshProgram();
     }
@@ -649,6 +661,15 @@ public final class BhTrainerPanel {
                 .setView(sv)
                 .setPositiveButton("Close", null)
                 .show();
+    }
+
+    private static void windowAction(boolean show) {
+        Context app = ctx.getApplicationContext();
+        toast(show ? "Showing the trainer window…" : "Bringing the game back…");
+        io.execute(() -> {
+            String m = show ? BhTrainerProgram.showTrainer(app) : BhTrainerProgram.backToGame(app);
+            ui.post(() -> toast(m));
+        });
     }
 
     private static void installMono() {

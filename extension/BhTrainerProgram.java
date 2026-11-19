@@ -298,7 +298,7 @@ public final class BhTrainerProgram {
         Process proc = launch(cmd, env, output, false);
         startedAt = System.currentTimeMillis();
         Log.i(TAG, "started: " + String.join(" ", cmd));
-        watch(proc, cmd, env, output, note, winPath);
+        watch(ctx.getApplicationContext(), proc, cmd, env, output, note, winPath);
         return "Starting " + exe.getName() + "…";
     }
 
@@ -401,7 +401,8 @@ public final class BhTrainerProgram {
      * Ended within 8 s through GameHub's launcher (run.exe)? Try once more with Wine
      * directly (the trainer as Wine's own argument).
      */
-    private static void watch(Process proc, String[] cmd, String[] env, File output, File note, String winPath) {
+    private static void watch(Context ctx, Process proc, String[] cmd, String[] env, File output, File note,
+                              String winPath) {
         new Thread(() -> {
             try {
                 long t0 = System.currentTimeMillis();
@@ -409,6 +410,7 @@ public final class BhTrainerProgram {
                 long secs = (System.currentTimeMillis() - t0) / 1000;
                 if (!ended) {
                     appendNote(note, "result: still running after 10 s (" + pids().size() + " trainer process(es))");
+                    autoHide(ctx, note);
                     return;
                 }
                 appendNote(note, "result: ended after " + secs + " s with exit code " + proc.exitValue());
@@ -427,10 +429,114 @@ public final class BhTrainerProgram {
                 boolean ended2 = p2.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
                 appendNote(note, ended2 ? "retry: ended with exit code " + p2.exitValue()
                         : "retry: still running after 10 s (" + pids().size() + " trainer process(es))");
+                if (!pids().isEmpty()) autoHide(ctx, note);
             } catch (Throwable t) {
                 appendNote(note, "watch failed: " + t);
             }
         }, "BhTrainerWatch").start();
+    }
+
+    // ── The trainer's window (bh_winctl.exe inside the game's Wine) ──────────
+    //
+    // GameHub's Wine has no taskbar or Alt+Tab: a trainer window that comes up
+    // over the game can't be put away, and the game stays black behind it. The
+    // cheats are hotkeys and keep working with the window hidden, so once the
+    // trainer is up its window is hidden and the game brought back. The helper
+    // is a tiny Windows program built by CI (tools/bh_winctl.c) and shipped in
+    // the APK's assets.
+
+    private static final String WINCTL_ASSET = "bunnerhub-etech/bh_winctl.exe";
+
+    /** Hides the trainer's window (retrying while it comes up), then brings the game back. */
+    private static void autoHide(Context ctx, File note) {
+        try {
+            for (int i = 0; i < 12; i++) {
+                if (pids().isEmpty()) return;
+                int hid = winctl(ctx, "hide", "bh_trainer");
+                if (hid == 0) {
+                    Thread.sleep(500);
+                    int back = winctl(ctx, "focus", gameExeName());
+                    appendNote(note, "window: trainer hidden, game " + (back == 0 ? "brought back" : "not found (" + back + ")"));
+                    return;
+                }
+                if (hid < 0) {
+                    appendNote(note, "window: helper unavailable");
+                    return;
+                }
+                Thread.sleep(2500);
+            }
+            appendNote(note, "window: no trainer window to hide after 30 s");
+        } catch (Throwable t) {
+            appendNote(note, "window: " + t);
+        }
+    }
+
+    /** Back to the game: hide the trainer's window, activate the game. Returns a message. */
+    static String backToGame(Context ctx) {
+        int hid = winctl(ctx, "hide", "bh_trainer");
+        int back = winctl(ctx, "focus", gameExeName());
+        if (hid < 0 || back < 0) return "The window helper isn't available in this build";
+        return back == 0 ? "Back to the game" + (hid == 0 ? " (trainer window hidden)" : "")
+                : "Couldn't find the game's window";
+    }
+
+    /** Shows the trainer's window over the game (Back to the game hides it again). */
+    static String showTrainer(Context ctx) {
+        if (pids().isEmpty()) return "The trainer isn't running";
+        int r = winctl(ctx, "show", "bh_trainer");
+        if (r < 0) return "The window helper isn't available in this build";
+        return r == 0 ? "Trainer window shown. Use Back to the game when you're done." : "No trainer window found";
+    }
+
+    /** The game's .exe file name from its launch command (lower case), or "" if unknown. */
+    static String gameExeName() {
+        String[] argv = gameArgv;
+        int i = argv == null ? -1 : exeIndex(argv);
+        if (i < 0) return "";
+        String a = argv[i].replace('/', '\\');
+        return a.substring(a.lastIndexOf('\\') + 1).toLowerCase(Locale.US);
+    }
+
+    /** Runs bh_winctl.exe in the game's Wine; its exit code, or -1 if it can't be run. */
+    static int winctl(Context ctx, String cmd, String match) {
+        try {
+            String[] argv = gameArgv;
+            String[] env = gameEnv;
+            String prefix = envValue(env, "WINEPREFIX");
+            int wineIdx = wineIndex(argv);
+            if (argv == null || prefix == null || wineIdx < 0 || match == null || match.isEmpty()) return -1;
+            File tools = new File(prefix, "drive_c/bh_tools");
+            if (!tools.isDirectory() && !tools.mkdirs()) return -1;
+            File exe = new File(tools, "bh_winctl.exe");
+            try (InputStream in = ctx.getAssets().open(WINCTL_ASSET)) {
+                byte[] data = readAll(in);
+                if (!exe.isFile() || exe.length() != data.length) write(exe, data);
+            }
+            List<String> c = new ArrayList<>();
+            for (int i = 0; i <= wineIdx; i++) c.add(argv[i]);
+            c.add("C:\\bh_tools\\bh_winctl.exe");
+            c.add(cmd);
+            c.add(match);
+            File logs = new File(Environment.getExternalStorageDirectory(), "BunnerHub-Etech/logs");
+            if (!logs.isDirectory()) logs.mkdirs();
+            Process p = launch(c.toArray(new String[0]), env, new File(logs, "winctl.log"), true);
+            if (!p.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroy();
+                return 3;
+            }
+            return p.exitValue();
+        } catch (Throwable t) {
+            Log.w(TAG, "winctl " + cmd + " failed", t);
+            return -1;
+        }
+    }
+
+    private static byte[] readAll(InputStream in) throws Exception {
+        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[16384];
+        int n;
+        while ((n = in.read(buf)) > 0) b.write(buf, 0, n);
+        return b.toByteArray();
     }
 
     // ── .rar / .7z trainers (7-Zip inside the game's Wine) ───────────────────
