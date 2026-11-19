@@ -755,6 +755,10 @@ jobs:
               open(path, 'w', encoding='utf-8').write(content.replace(old, new, 1))
               print(f"OK: {label}")
 
+          # All three checks below use BhOfflineLaunch.launchOnline() (validated internet,
+          # so Wi-Fi without internet counts as offline; shows a notice when offline)
+          # instead of NetworkUtils.r() (merely "connected").
+          #
           # Early-return GameConfigDownloadTask.executeInternal as Unit when network is unreachable,
           # so launches of imported PC games (and any other source) succeed offline using
           # whatever container/components were set up the last time the game launched online.
@@ -776,7 +780,7 @@ jobs:
               '    invoke-static {p2}, Lkotlin/ResultKt;->b(Ljava/lang/Object;)V\n'
               '\n'
               '    # BannerHub: skip game-config download when offline so imported PC games launch with last-known setup\n'
-              '    invoke-static {}, Lcom/blankj/utilcode/util/NetworkUtils;->r()Z\n'
+              '    invoke-static {}, Lapp/revanced/extension/gamehub/BhOfflineLaunch;->launchOnline()Z\n'
               '    move-result v2\n'
               '    if-nez v2, :bh_offline_continue\n'
               '    sget-object v2, Lkotlin/Unit;->a:Lkotlin/Unit;\n'
@@ -814,7 +818,7 @@ jobs:
               '    .line 30\n'
               '    invoke-interface {v0, v2}, Ljava/util/List;->add(Ljava/lang/Object;)Z\n',
               '    # BannerHub: skip SetGameRecommConfigTask offline (its class is in smali_classes12, replaced by prebuilt dex)\n'
-              '    invoke-static {}, Lcom/blankj/utilcode/util/NetworkUtils;->r()Z\n'
+              '    invoke-static {}, Lapp/revanced/extension/gamehub/BhOfflineLaunch;->launchOnline()Z\n'
               '    move-result v2\n'
               '    if-eqz v2, :bh_skip_recomm_task\n'
               '\n'
@@ -850,7 +854,7 @@ jobs:
               '    .line 66\n'
               '    invoke-interface {v0, p0}, Ljava/util/List;->add(Ljava/lang/Object;)Z\n',
               '    # BannerHub: skip DependencyInstallTask offline so already-installed deps do not trigger a network refresh\n'
-              '    invoke-static {}, Lcom/blankj/utilcode/util/NetworkUtils;->r()Z\n'
+              '    invoke-static {}, Lapp/revanced/extension/gamehub/BhOfflineLaunch;->launchOnline()Z\n'
               '    move-result v2\n'
               '    if-eqz v2, :bh_skip_deps_task\n'
               '\n'
@@ -865,6 +869,39 @@ jobs:
               '    invoke-interface {v0, p0}, Ljava/util/List;->add(Ljava/lang/Object;)Z\n'
               '    :bh_skip_deps_task\n',
               'SetupTaskFactory.g(): omit DependencyInstallTask from PC-game launch task list when NetworkUtils.r() is false'
+          )
+
+          # Any other failure of an online-only step (server down, timeout, Wi-Fi
+          # that drops mid-launch) used to stop the launch: BaseSetupTask$execute$2
+          # turns every exception into SetupTaskResult.Failure. Ask
+          # BhOfflineLaunch.softFail() first; for GameConfigDownloadTask,
+          # SetGameRecommConfigTask and (network errors of) DependencyInstallTask it
+          # returns a message, and the task reports Success instead (label 4 = the
+          # normal post-success resume state, which just returns Unit).
+          # Registers: v0 = task (this$0), p1 = the Throwable, v1 = ProducerScope,
+          # v2 = COROUTINE_SUSPENDED, v3 free (overwritten right after).
+          patch(
+              'apktool_out_base/smali_classes4/com/xj/winemu/setup/tasks/BaseSetupTask$execute$2.smali',
+              '    :goto_4\n'
+              '    iget-object v0, p0, Lcom/xj/winemu/setup/tasks/BaseSetupTask$execute$2;->this$0:Lcom/xj/winemu/setup/tasks/BaseSetupTask;\n',
+              '    :goto_4\n'
+              '    iget-object v0, p0, Lcom/xj/winemu/setup/tasks/BaseSetupTask$execute$2;->this$0:Lcom/xj/winemu/setup/tasks/BaseSetupTask;\n'
+              '\n'
+              '    # BunnerHub Etech: online-only steps may fail without blocking the launch\n'
+              '    invoke-static {v0, p1}, Lapp/revanced/extension/gamehub/BhOfflineLaunch;->softFail(Ljava/lang/Object;Ljava/lang/Throwable;)Ljava/lang/String;\n'
+              '    move-result-object v3\n'
+              '    if-eqz v3, :bh_hard_fail\n'
+              '    new-instance v0, Lcom/xj/winemu/setup/core/SetupTaskResult$Success;\n'
+              '    invoke-direct {v0, v3}, Lcom/xj/winemu/setup/core/SetupTaskResult$Success;-><init>(Ljava/lang/String;)V\n'
+              '    iput-object v1, p0, Lcom/xj/winemu/setup/tasks/BaseSetupTask$execute$2;->L$0:Ljava/lang/Object;\n'
+              '    const/4 v3, 0x4\n'
+              '    iput v3, p0, Lcom/xj/winemu/setup/tasks/BaseSetupTask$execute$2;->label:I\n'
+              '    invoke-interface {v1, v0, p0}, Lkotlinx/coroutines/channels/SendChannel;->F(Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;\n'
+              '    move-result-object p0\n'
+              '    if-ne p0, v2, :cond_5\n'
+              '    goto :goto_6\n'
+              '    :bh_hard_fail\n',
+              'BaseSetupTask$execute$2: soft-fail online-only setup steps (BhOfflineLaunch.softFail)'
           )
 
           print("Offline Launch patch applied.")

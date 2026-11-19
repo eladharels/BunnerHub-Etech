@@ -65,6 +65,7 @@ Before any stable release is published, all changes are manually debugged and te
   - [FSR Upscaling](#fsr-upscaling)
   - [PC Game Settings: Offline Mode](#pc-game-settings-offline-mode)
   - [Offline Steam Launch](#offline-steam-launch)
+  - [Offline Game Launch](#offline-game-launch)
   - [Settings: Advanced Tab](#settings-advanced-tab)
   - [Controller Navigation](#controller-navigation)
   - [Wine Task Manager](#wine-task-manager)
@@ -820,6 +821,18 @@ Opening PC game settings while offline no longer blocks with a spinner or error.
 ### Offline Steam Launch
 
 When Steam auto-login fails at cold start with no network, BannerHub detects the condition, skips the Steam login screen, and proceeds using the locally cached Steam configuration. You can continue playing your installed Steam library offline.
+
+---
+
+### Offline Game Launch
+
+Starting a game runs a few online steps: download the game's recommended config, apply it, and refresh dependency components. Without internet these no longer block the launch:
+
+- **No internet** (including Wi-Fi without internet or a captive portal, judged by Android's "validated" network check) skips those steps at once instead of waiting for timeouts.
+- **Any other failure** of those steps (server down, timeout, connection dropping mid-launch) is reported as skipped and the launch continues.
+- Either way a short notice says: *"No internet: skipped the online config check. Starting with your saved settings."* The game uses the settings saved last time (or defaults).
+
+Install steps (system image, container, components) are never skipped: a game whose files are missing still needs internet once.
 
 ---
 
