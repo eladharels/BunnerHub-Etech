@@ -52,7 +52,7 @@ public final class BhTrainer {
     /** Value types, Cheat Engine names. */
     public enum Type {
         INT32("4 bytes", 4, 4), FLOAT("Float", 4, 4), INT16("2 bytes", 2, 2),
-        BYTE("1 byte", 1, 1), DOUBLE("Double", 8, 4);
+        BYTE("1 byte", 1, 1), DOUBLE("Double", 8, 4), INT64("8 bytes", 8, 4);
 
         final String label;
         final int size;
@@ -640,6 +640,7 @@ public final class BhTrainer {
     static double valueAt(Type t, ByteBuffer bb, int off) {
         switch (t) {
             case INT32: return bb.getInt(off);
+            case INT64: return bb.getLong(off);
             case INT16: return bb.getShort(off);
             case BYTE: return bb.get(off) & 0xFF;
             case FLOAT: return bb.getFloat(off);
@@ -656,6 +657,7 @@ public final class BhTrainer {
     private static boolean matches(Type t, ByteBuffer bb, int off, double v) {
         switch (t) {
             case INT32: return bb.getInt(off) == (long) v;
+            case INT64: return bb.getLong(off) == (long) v;
             case INT16: return bb.getShort(off) == (long) v || (bb.getShort(off) & 0xFFFF) == (long) v;
             case BYTE: return (bb.get(off) & 0xFF) == (long) v || bb.get(off) == (long) v;
             case FLOAT: {
@@ -684,6 +686,7 @@ public final class BhTrainer {
         ByteBuffer bb = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN);
         switch (t) {
             case INT32: return (double) bb.getInt(0);
+            case INT64: return (double) bb.getLong(0);
             case INT16: return (double) bb.getShort(0);
             case BYTE: return (double) (bb.get(0) & 0xFF);
             case FLOAT: return (double) bb.getFloat(0);
@@ -692,12 +695,35 @@ public final class BhTrainer {
         return null;
     }
 
+    /** Reads a pointer of 4 or 8 bytes, or null. */
+    static Long readPointer(int p, long address, int size) {
+        byte[] b = new byte[8];
+        try (RandomAccessFile mem = new RandomAccessFile("/proc/" + p + "/mem", "r")) {
+            if (readAt(mem, address, b, size) < size) return null;
+        } catch (Exception e) {
+            return null;
+        }
+        ByteBuffer bb = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN);
+        return size == 4 ? (bb.getInt(0) & 0xFFFFFFFFL) : bb.getLong(0);
+    }
+
+    /** Reads len bytes at address, or null. */
+    static byte[] readBytes(int p, long address, int len) {
+        byte[] b = new byte[len];
+        try (RandomAccessFile mem = new RandomAccessFile("/proc/" + p + "/mem", "r")) {
+            return readAt(mem, address, b, len) == len ? b : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     static boolean write(long address, Type t, double value) {
         int p = gamePid();
         if (p < 0) return false;
         ByteBuffer bb = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
         switch (t) {
             case INT32: bb.putInt(0, (int) value); break;
+            case INT64: bb.putLong(0, (long) value); break;
             case INT16: bb.putShort(0, (short) value); break;
             case BYTE: bb.put(0, (byte) value); break;
             case FLOAT: bb.putFloat(0, (float) value); break;
@@ -728,13 +754,14 @@ public final class BhTrainer {
         return new ArrayList<>(entries);
     }
 
-    static synchronized void addEntry(Context ctx, String name, long address, Type t) {
+    static synchronized Entry addEntry(Context ctx, String name, long address, Type t) {
         Entry e = new Entry();
         e.name = name;
         e.address = address;
         e.type = t;
         entries.add(e);
         saveEntries(ctx);
+        return e;
     }
 
     static synchronized void removeEntry(Context ctx, Entry e) {

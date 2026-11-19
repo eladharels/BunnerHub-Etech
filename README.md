@@ -783,16 +783,15 @@ Current list:
 
 ### In-Game Trainer
 
-Change values in a running game, Cheat Engine style: XP, money, ammo, item counts. It's in the in-game sidebar (**☰** at the bottom while playing) as the **⊕ Trainer** tab.
+Change values in a running game, Cheat Engine style: health, XP, money, ammo. It's in the in-game sidebar (**☰** at the bottom while playing) as the **⊕ Trainer** tab, with three ways in, easiest first:
 
-1. Type a value you can see in the game (e.g. your XP, 1250) and tap **New search**.
-2. Change it in the game (earn or spend some), type the new value and tap **Next search**. Repeat until a few results are left.
-3. Tap a result to **Set value** or **Save** it under a name.
-4. Saved values show live; tap one to set it, **Freeze** it (kept at the current value) or delete it. They're remembered per game.
+**Cheat table:** download a Cheat Engine table (`.CT`, e.g. from FearLess Revolution) for the game to your phone's **Download** folder (or `/sdcard/BunnerHub-Etech/tables`), tap **Import table**, pick it. Each cheat shows its live value; tap one to **Set value** or **Freeze** it. The table is remembered per game. Value cheats work, including module + offset addresses (`"game.exe"+1234`), pointer chains (Offsets) and bracket addresses (`[[game.exe+10]+20]+48`). **Script cheats (Auto Assembler) are not supported yet**, nor names a script defines; the import says how many of the table's cheats can be used, and unusable ones are greyed out with the reason.
 
-**Values the game doesn't show as a number** (health bars, stamina): tap **Unknown value**, lose some health and tap **Decreased ↓**, heal and tap **Increased ↑**, stand still and tap **Unchanged**; repeat until a few results are left. Save the result and **Freeze** it for infinite health. **Changed** is also there. Health is often a Float, so pick the type first. Unknown value saves a copy of the game's memory in the app's storage (a few hundred MB) until the results are down to a list or you tap Reset; **Next search (typed value)** works after either kind of search.
+**Health finder** (health bars and other values with no number on screen): heal to full, tap **Start**, then each time your health changes tap **I lost health ↓** or **I gained health ↑** (after each one it also drops values that change by themselves); **Health didn't change** is there too. When 10 or fewer results are left, heal to full and tap **Lock all**: each is saved as "Health" and frozen. Nothing found as a Float? It switches to 4 bytes for the next Start. Start saves a copy of the game's memory in the app's storage (a few hundred MB) until the results are down to a list or you tap Reset.
 
-The type button switches between 4 bytes (most counters), Float, 2 bytes, 1 byte and Double. Addresses can change after the game restarts; search again if a saved value stops working. **Single-player games only**: games with online anti-cheat can detect memory changes.
+**Search by number:** type a value you see (e.g. your XP, 1250) and tap **New search**; change it in the game, type the new value and tap **Next search**; repeat until a few results are left. Tap a result to **Set value** or **Save** it.
+
+Saved values show live; tap one to set it, **Freeze** it or delete it. They're remembered per game, but addresses can change after the game restarts (cheat-table entries with pointers don't have that problem). The type button switches between 4 bytes, Float, 2 bytes, 1 byte, Double and 8 bytes. **Single-player games only**: games with online anti-cheat can detect memory changes.
 
 ---
 
