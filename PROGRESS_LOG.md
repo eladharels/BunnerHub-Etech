@@ -4,6 +4,12 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Trainer: unknown-value searches (2026-11-19)
+Cheats step 2 (see roadmap item 8): find values with no number on screen (health bars) and freeze them for infinite health.
+- `BhTrainer`: `Scan` = EXACT, UNKNOWN, DECREASED, INCREASED, CHANGED, UNCHANGED. UNKNOWN saves every writable region below 4 GB to `cacheDir/bh_trainer_snapshot.bin` (free-space check: size + 256 MB) and tracks surviving slots as a `BitSet` per region (null = all); compare scans read memory and the snapshot chunk by chunk, keep slots by comparison, and write the new values back into the file in place. Once at most `MAX_RESULTS` (4 M) remain, results switch to the sorted address list, now with each address's previous value (`prev`), and the snapshot is deleted (also on Reset / new search / game change). NaN and infinite floats never match a comparison.
+- `BhTrainerPanel`: **Unknown value** next to New search; **Next search (typed value)**, **Decreased ↓ / Increased ↑**, **Changed / Unchanged** after a search; status texts and help for health bars.
+- Checked locally against a stand-in process (float "health" at a fixed low address in 64 MB of noise): Unknown → damage + Decreased → 1 result at the right address; Increased / Unchanged keep it, Changed → 0; snapshot deleted on switch to list and on Reset. Not yet device-tested.
+
 ### [fix] — Online launch checks never block offline play (2026-11-19)
 - Request: the config check at game start needs internet; it must not block offline play, and should say so.
 - Before: the offline patch (`GameConfigDownloadTask`, `SetupTaskFactory`) used `NetworkUtils.r()` ("connected"), so Wi-Fi without internet / captive portals still ran the online steps; and any failure of a setup step (e.g. `GameConfigDownloadTask` throwing "failed to retrieve game config") became `SetupTaskResult.Failure` in `BaseSetupTask$execute$2`, stopping the launch.

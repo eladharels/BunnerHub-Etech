@@ -44,6 +44,7 @@ public final class BhTrainerPanel {
     private static Context ctx;
     private static EditText valueInput;
     private static Button typeButton, nextButton;
+    private static final List<Button> compareButtons = new java.util.ArrayList<>();
     private static TextView status, gameLine;
     private static LinearLayout resultsBox, savedBox;
     private static boolean busy;
@@ -99,20 +100,32 @@ public final class BhTrainerPanel {
         inputRow.addView(typeButton, wrapLeft(8));
         search.addView(inputRow);
 
+        // New search: the typed value, or "unknown" (health bars and other values
+        // the game doesn't show as a number).
         LinearLayout buttons = new LinearLayout(ctx);
         Button first = button("New search", true);
-        first.setOnClickListener(v -> runScan(false));
-        nextButton = button("Next search", true);
-        nextButton.setOnClickListener(v -> runScan(true));
+        first.setOnClickListener(v -> runScan(BhTrainer.Scan.EXACT, false));
+        Button unknown = button("Unknown value", false);
+        unknown.setOnClickListener(v -> runScan(BhTrainer.Scan.UNKNOWN, false));
         Button reset = button("Reset", false);
         reset.setOnClickListener(v -> {
             BhTrainer.clearResults();
             showResults();
         });
         buttons.addView(first, new LinearLayout.LayoutParams(0, -2, 1f));
-        buttons.addView(nextButton, weightMargins(1f, 8));
+        buttons.addView(unknown, weightMargins(1f, 8));
         buttons.addView(reset, wrapLeft(8));
         search.addView(buttons, margins(0, 10, 0, 0));
+
+        // Next search: the typed value, or compared with the last search.
+        nextButton = button("Next search (typed value)", true);
+        nextButton.setOnClickListener(v -> runScan(BhTrainer.Scan.EXACT, true));
+        search.addView(nextButton, margins(0, 8, 0, 0));
+        compareButtons.clear();
+        search.addView(compareRow(BhTrainer.Scan.DECREASED, "Decreased ↓", BhTrainer.Scan.INCREASED, "Increased ↑"),
+                margins(0, 8, 0, 0));
+        search.addView(compareRow(BhTrainer.Scan.CHANGED, "Changed", BhTrainer.Scan.UNCHANGED, "Unchanged"),
+                margins(0, 8, 0, 0));
 
         status = text(12, GREY, false);
         search.addView(status, margins(0, 10, 0, 0));
@@ -132,6 +145,11 @@ public final class BhTrainerPanel {
         help.setText("How to: type the value you see in the game (e.g. your XP) and tap New search. "
                 + "Change it in the game (earn or spend some), type the new value and tap Next search. "
                 + "Repeat until only a few results are left, then tap one to set it or save it.\n"
+                + "No number on screen (a health bar)? Tap Unknown value, lose some health and tap Decreased, "
+                + "heal and tap Increased, wait and tap Unchanged; repeat. Save the result and Freeze it "
+                + "for infinite health. Health is often a Float: switch the type first.\n"
+                + "Unknown value saves a copy of the game's memory (a few hundred MB of app storage) "
+                + "until the results are narrowed down or you tap Reset.\n"
                 + "Saved addresses can change after the game restarts; search again if a value stops working.\n"
                 + "Single-player games only.");
         root.addView(help, margins(0, 18, 0, 0));
@@ -163,25 +181,45 @@ public final class BhTrainerPanel {
         showResults();
     }
 
-    private static void runScan(boolean next) {
+    private static LinearLayout compareRow(BhTrainer.Scan a, String aLabel, BhTrainer.Scan b, String bLabel) {
+        LinearLayout row = new LinearLayout(ctx);
+        Button ba = button(aLabel, false);
+        ba.setOnClickListener(v -> runScan(a, true));
+        Button bb = button(bLabel, false);
+        bb.setOnClickListener(v -> runScan(b, true));
+        row.addView(ba, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(bb, weightMargins(1f, 8));
+        compareButtons.add(ba);
+        compareButtons.add(bb);
+        return row;
+    }
+
+    private static void runScan(BhTrainer.Scan kind, boolean next) {
         if (busy) return;
-        Double v = parse(valueInput.getText().toString());
-        if (v == null) {
+        Double typed = parse(valueInput.getText().toString());
+        if (kind == BhTrainer.Scan.EXACT && typed == null) {
             toast("Type a number first");
             return;
         }
         if (next && !BhTrainer.scanned()) {
-            toast("Do a New search first");
+            toast("Do a New search or Unknown value first");
             return;
         }
+        double v = typed == null ? 0 : typed;
         busy = true;
-        status.setText(next ? "Searching the previous results…" : "Searching the game's memory…");
+        if (kind == BhTrainer.Scan.UNKNOWN) {
+            status.setText(String.format(Locale.US, "Saving a copy of the game's memory (%,d MB)…",
+                    BhTrainer.snapshotSize() >> 20));
+        } else {
+            status.setText(next ? "Comparing (" + kind.label + ")…" : "Searching the game's memory…");
+        }
         new Thread(() -> {
             String error = null;
             try {
-                BhTrainer.Progress p = pct -> ui.post(() -> status.setText("Searching… " + pct + "%"));
-                if (next) BhTrainer.nextScan(v, p);
-                else BhTrainer.firstScan(v, p);
+                BhTrainer.Progress p = pct -> ui.post(() -> status.setText(
+                        (kind == BhTrainer.Scan.UNKNOWN ? "Saving memory… " : "Searching… ") + pct + "%"));
+                if (next) BhTrainer.nextScan(kind, v, p);
+                else BhTrainer.firstScan(kind, v, p);
             } catch (Throwable t) {
                 error = t.getMessage() != null ? t.getMessage() : t.toString();
             }
@@ -198,11 +236,17 @@ public final class BhTrainerPanel {
     private static void showResults() {
         if (resultsBox == null) return;
         resultsBox.removeAllViews();
-        int n = BhTrainer.resultCount();
-        nextButton.setEnabled(BhTrainer.scanned() && n > 0);
-        nextButton.setAlpha(nextButton.isEnabled() ? 1f : 0.4f);
+        long n = BhTrainer.resultCount();
+        boolean canNext = BhTrainer.scanned() && n > 0;
+        nextButton.setEnabled(canNext);
+        nextButton.setAlpha(canNext ? 1f : 0.4f);
+        for (Button b : compareButtons) {
+            b.setEnabled(canNext);
+            b.setAlpha(canNext ? 1f : 0.4f);
+        }
         if (!BhTrainer.scanned()) {
-            status.setText("Type a value you can see in the game and tap New search.");
+            status.setText("Type a value you can see in the game and tap New search, "
+                    + "or tap Unknown value for a health bar.");
             return;
         }
         if (n == 0) {
@@ -210,13 +254,19 @@ public final class BhTrainerPanel {
             return;
         }
         String count = String.format(Locale.US, "%,d", n) + (BhTrainer.truncated() ? "+" : "");
+        if (!BhTrainer.listed()) {
+            status.setText(count + " possible values. Change it in the game (e.g. take damage), "
+                    + "then tap Decreased, Increased, Changed or Unchanged.");
+            return;
+        }
         if (n > SHOWN_RESULTS) {
-            status.setText(count + " results. Change the value in the game, type the new value and tap Next search.");
+            status.setText(count + " results. Change the value in the game, then tap Next search "
+                    + "(typed value) or Decreased / Increased / Changed / Unchanged.");
             return;
         }
         status.setText(count + (n == 1 ? " result" : " results") + ". Tap one to set or save it.");
         BhTrainer.Type t = BhTrainer.type();
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < (int) n; i++) {
             long addr = BhTrainer.result(i);
             LinearLayout row = listRow(String.format(Locale.US, "0x%08X", addr),
                     BhTrainer.format(BhTrainer.read(addr, t), t));

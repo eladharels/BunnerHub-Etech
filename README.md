@@ -790,6 +790,8 @@ Change values in a running game, Cheat Engine style: XP, money, ammo, item count
 3. Tap a result to **Set value** or **Save** it under a name.
 4. Saved values show live; tap one to set it, **Freeze** it (kept at the current value) or delete it. They're remembered per game.
 
+**Values the game doesn't show as a number** (health bars, stamina): tap **Unknown value**, lose some health and tap **Decreased ↓**, heal and tap **Increased ↑**, stand still and tap **Unchanged**; repeat until a few results are left. Save the result and **Freeze** it for infinite health. **Changed** is also there. Health is often a Float, so pick the type first. Unknown value saves a copy of the game's memory in the app's storage (a few hundred MB) until the results are down to a list or you tap Reset; **Next search (typed value)** works after either kind of search.
+
 The type button switches between 4 bytes (most counters), Float, 2 bytes, 1 byte and Double. Addresses can change after the game restarts; search again if a saved value stops working. **Single-player games only**: games with online anti-cheat can detect memory changes.
 
 ---

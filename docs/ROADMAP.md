@@ -76,6 +76,15 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **Next (on hold until Elad is back, December):** our own Vulkan layer that does FSR 1 / Snapdragon GSR at present time and replaces GameHub's final stretch. It needs no per-game work (spatial, whole frame; HUD/text upscaled too) and works with any Wine for DXVK / VKD3D games, probably OpenGL too (Zink → Vulkan). Work: native C++ (NDK) built in CI, find where GameHub does the final stretch (`libGameScopeVK` DirectRendering present path or the X server renderer), a per-game on/off and quality setting, several device test rounds. OptiScaler per game (DLSS/XeSS/FSR 2 inputs) stays a later option.
 
+## 8. Cheats ◐
+
+**Status (2026-11-19):** step 2 implemented: unknown-value / decreased / increased / changed / unchanged searches in the Trainer, so health bars can be found and frozen (infinite health).
+
+**Plan (discussed 2026-11-19):**
+1. Elad tests a ready-made trainer (e.g. FLiNG) inside the game's Wine via the sidebar Task Manager → Launch. Unknowns: code patching under FEX, hotkeys via the on-screen keyboard.
+2. ☑ Unknown-value searches.
+3. Pointer paths (module + offsets) so saved values survive restarts; then import Cheat Engine tables (`.CT`, e.g. from FearLess Revolution): address/pointer entries first, Auto Assembler scripts only if a test shows that patching x86 code works under FEX (translated code may not see the change). Users import tables themselves; none are bundled. Single-player only.
+
 ## 5. Housekeeping ☑
 
 **Status (2026-10-27):** done at Elad's request. The work branch replaced `main` (which only held a one-line "Initial commit"); CI builds on pushes to `main`. Builds are signed with Elad's own release key (RSA 4096, alias `bunnerhub-etech`, cert SHA-256 `D5:F2:A2:7C:…:F4:DA`), stored as repo secrets `SIGNING_KEYSTORE_B64` / `SIGNING_KEYSTORE_PASSWORD` / `SIGNING_KEY_ALIAS`; the keystore itself lives only outside the repo (Elad's PC, to be backed up). Without the secrets (forks) CI falls back to the public test key and names the APK `…-testkey.apk`. Switching keys needed one uninstall.
