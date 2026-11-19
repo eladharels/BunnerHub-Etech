@@ -117,6 +117,7 @@ public final class BhCheatBrowser {
         progress.setMax(100);
         root.addView(progress, new LinearLayout.LayoutParams(-1, dp(act, 3)));
 
+        FileReady[] onFileRef = new FileReady[1]; // set below, once the handlers exist
         WebView web = new WebView(act);
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true); // the forum and its sign-in need it
@@ -132,6 +133,11 @@ public final class BhCheatBrowser {
                 String scheme = req.getUrl().getScheme();
                 return !"https".equals(scheme) && !"http".equals(scheme); // no intents, files, etc.
             }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest req) {
+                return intercept(req, onFileRef[0]);
+            }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -142,17 +148,20 @@ public final class BhCheatBrowser {
         });
         Handler ui = new Handler(Looper.getMainLooper());
         boolean[] busy = {false};
-        web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
+        // Some sites (FLiNG) refuse a second request for the same download (single-use
+        // links, Referer checks), so a file is taken from the browser's own request
+        // where possible (shouldInterceptRequest below), else fetched again with the page as Referer.
+        FileReady onFile = (url, data, name, userAgent, referer) -> ui.post(() -> {
             if (busy[0]) return;
             busy[0] = true;
-            String name = URLUtil.guessFileName(url, disposition, mime);
             title.setText("Downloading " + name + "…");
             String cookies = CookieManager.getInstance().getCookie(url);
             new Thread(() -> {
                 String msg;
                 boolean ok = false;
                 try {
-                    msg = handler.handle(act.getApplicationContext(), download(url, userAgent, cookies), name);
+                    byte[] bytes = data != null ? data : download(url, userAgent, cookies, referer);
+                    msg = handler.handle(act.getApplicationContext(), bytes, name);
                     ok = true;
                 } catch (Throwable t) {
                     Log.w(TAG, "download failed: " + url, t);
@@ -171,6 +180,11 @@ public final class BhCheatBrowser {
                     }
                 });
             }, "BhCheatDownload").start();
+        });
+        onFileRef[0] = onFile;
+        web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
+            byte[] taken = stash.remove(url);
+            onFile.ready(url, taken, URLUtil.guessFileName(url, disposition, mime), userAgent, web.getUrl());
         });
         root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
 
@@ -208,6 +222,99 @@ public final class BhCheatBrowser {
         if (game == null || game.trim().isEmpty()) return SITE;
         String q = game.replaceAll("[™®©:]", " ").replaceAll("\\s+", " ").trim();
         return SITE + "search.php?sr=topics&keywords=" + Uri.encode(q);
+    }
+
+    interface FileReady {
+        void ready(String url, byte[] data, String name, String userAgent, String referer);
+    }
+
+    /** Downloads taken from the browser's own requests, by URL (for the DownloadListener). */
+    private static final java.util.Map<String, byte[]> stash = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.regex.Pattern DOWNLOADISH = java.util.regex.Pattern.compile(
+            "(?i)(/downloads?[/?]|[?&]download=|download\\.php|file\\.php|\\.(zip|exe|ct|rar|7z)([?#]|$))");
+
+    /**
+     * WebView thread: for a top-level GET that looks like a download, make the
+     * request here with the browser's headers and cookies. A file is handed to
+     * onFile and the browser shows a short note; anything else goes back to the
+     * browser (null), which loads it itself.
+     */
+    static android.webkit.WebResourceResponse intercept(WebResourceRequest req, FileReady onFile) {
+        try {
+            if (onFile == null || !req.isForMainFrame() || !"GET".equalsIgnoreCase(req.getMethod())) return null;
+            String url = req.getUrl().toString();
+            if (!url.startsWith("https://") || !DOWNLOADISH.matcher(url).find()) return null;
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setInstanceFollowRedirects(true);
+            for (java.util.Map.Entry<String, String> h : req.getRequestHeaders().entrySet()) {
+                c.setRequestProperty(h.getKey(), h.getValue());
+            }
+            String cookies = CookieManager.getInstance().getCookie(url);
+            if (cookies != null) c.setRequestProperty("Cookie", cookies);
+            try {
+                int code = c.getResponseCode();
+                keepCookies(c);
+                String disposition = c.getHeaderField("Content-Disposition");
+                String type = c.getContentType();
+                if (code != 200) return null;
+                byte[] head = new byte[0];
+                byte[] data;
+                try (InputStream in = c.getInputStream()) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        if (out.size() > MAX_DOWNLOAD) return null;
+                    }
+                    data = out.toByteArray();
+                }
+                boolean file = (disposition != null && disposition.toLowerCase(Locale.US).contains("attachment"))
+                        || isZip(data) || (data.length > 1 && data[0] == 'M' && data[1] == 'Z')
+                        || looksLikeTable(data) || isRarOr7z(data);
+                if (!file) {
+                    // A page after all: give the browser what we already have.
+                    String mime = type == null ? "text/html" : type.split(";")[0].trim();
+                    String charset = "utf-8";
+                    if (type != null && type.toLowerCase(Locale.US).contains("charset=")) {
+                        charset = type.substring(type.toLowerCase(Locale.US).indexOf("charset=") + 8).trim();
+                    }
+                    return new android.webkit.WebResourceResponse(mime, charset, new ByteArrayInputStream(data));
+                }
+                String name = URLUtil.guessFileName(c.getURL().toString(), disposition, type);
+                if (name == null || name.isEmpty() || name.endsWith(".bin")) {
+                    String n2 = URLUtil.guessFileName(url, disposition, type);
+                    if (n2 != null && !n2.isEmpty()) name = n2;
+                }
+                onFile.ready(url, data, name, null, null);
+                String note = "<html><body style='font-family:sans-serif;background:#142036;color:#fafafa;"
+                        + "padding:24px'>Downloaded. Importing…</body></html>";
+                return new android.webkit.WebResourceResponse("text/html", "utf-8",
+                        new ByteArrayInputStream(note.getBytes("UTF-8")));
+            } finally {
+                c.disconnect();
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "intercept failed, the browser loads it itself", t);
+            return null;
+        }
+    }
+
+    private static void keepCookies(HttpURLConnection c) {
+        try {
+            java.util.List<String> set = c.getHeaderFields().get("Set-Cookie");
+            if (set == null) return;
+            String at = c.getURL().toString();
+            for (String v : set) CookieManager.getInstance().setCookie(at, v);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    static boolean isRarOr7z(byte[] d) {
+        return (d.length > 4 && d[0] == 'R' && d[1] == 'a' && d[2] == 'r' && d[3] == '!')
+                || (d.length > 6 && (d[0] & 0xFF) == 0x37 && (d[1] & 0xFF) == 0x7A && (d[2] & 0xFF) == 0xBC);
     }
 
     /** One WebView data directory per process (Android 9+). */
@@ -260,7 +367,7 @@ public final class BhCheatBrowser {
                 + (r[0] < r[1] ? " (the rest are scripts, not supported yet)" : "")) + more;
     }
 
-    static byte[] download(String url, String userAgent, String cookies) throws Exception {
+    static byte[] download(String url, String userAgent, String cookies, String referer) throws Exception {
         URL u = new URL(url);
         if (!"https".equals(u.getProtocol())) throw new IllegalStateException("Only https downloads");
         HttpURLConnection c = (HttpURLConnection) u.openConnection();
@@ -269,9 +376,15 @@ public final class BhCheatBrowser {
         c.setInstanceFollowRedirects(true);
         if (userAgent != null) c.setRequestProperty("User-Agent", userAgent);
         if (cookies != null) c.setRequestProperty("Cookie", cookies);
+        if (referer != null) c.setRequestProperty("Referer", referer);
+        c.setRequestProperty("Accept", "*/*");
         try {
             int code = c.getResponseCode();
-            if (code != 200) throw new IllegalStateException("Download failed (HTTP " + code + ")");
+            if (code != 200) {
+                throw new IllegalStateException("Download failed (HTTP " + code + ")"
+                        + (code == 403 ? ": the site refused it. Try the download link again, or download it "
+                        + "in your phone's browser and use Use a file / Import file." : ""));
+            }
             try (InputStream in = c.getInputStream()) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 byte[] buf = new byte[65536];

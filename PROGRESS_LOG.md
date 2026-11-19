@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — In-game browser: downloads the site refuses to serve twice (2026-11-19)
+- Device report: Find online for trainers on flingtrainer.com (Sleeping Dogs) ended in "Download failed (HTTP 403)". The browser's DownloadListener only gives a URL, and fetching it a second time (without the page as Referer, or with a single-use link) is refused.
+- `BhCheatBrowser`: `shouldInterceptRequest` makes top-level GETs that look like downloads (`/download(s)/`, `?download=`, `download.php`, `file.php`, `.zip/.exe/.ct/.rar/.7z`) itself, with the browser's request headers (Referer, User-Agent, Accept…) and cookies, and keeps `Set-Cookie`. A file (attachment, or zip / exe / rar / 7z / table bytes) is handed straight to the import and the browser shows "Downloaded. Importing…"; a page is given back to the browser as is; any error → the browser loads it itself. The DownloadListener path remains as fallback and now sends the page as Referer, with a clearer 403 message.
+- Not yet device-tested.
+
 ### [feat] — Trainer: ready-made trainer programs, step 1 (2026-11-19)
 Idea (Elad): open a trainer `.exe` from the app and control it from the in-game menu; mockup with two frames (trainer running docked on the right with switches; first-time Find online). Step 1 = get and run the trainer with no manual work, which also tests whether trainer cheats take effect under FEX; step 2 (switches that press the trainer's keys, names from the download page) depends on that.
 - `extension/BhTrainerProgram.java`: per game, `/sdcard/BunnerHub-Etech/trainers/<gameId>/` (prefs `bh_trainer_program`: `exe_<id>` relative path, `auto_<id>`). Install from a download or Download/: `.exe` (MZ) or `.zip` (extracted with `../` entries skipped; the .exe named like "trainer", else the largest), via a `.new` folder swapped in on success; `.rar`/`.7z` get a message. Start: copy the folder into the running game's Wine prefix (`drive_c/bh_trainer/`) and `BhWineLaunchHelper.launchExe` it (the Task Manager's Launch path: game's Wine binary + environment). Running = a process whose cmdline holds the exe name; Stop = `Process.killProcess`. Auto-start from `BhPlayTime.onGameResume`: waits for the game process (up to 3 min), 8 s more, once per game pid.
