@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * Shows, refreshed every second: the size the game renders at (the Vulkan
  * layer's swapchain report, else the Wine screen size), the size FSR 1
- * upscales it to (the Wine screen),
+ * upscales it to (or GameHub's plain stretch to the display),
  * and the BunnerHub upscaler's settings and status ({@link BhVkLayer}).
  * Settings are per game and apply on the next launch.
  */
@@ -108,7 +108,7 @@ public final class BhFsrPanel {
         sizesTitle.setText("Resolution now");
         sizes.addView(sizesTitle);
         renderValue = row(sizes, "Game renders at");
-        outputValue = row(sizes, "Upscaled to (Wine screen)");
+        outputValue = row(sizes, "Upscaled to");
         displayValue = row(sizes, "Your display");
 
         // ── Upscaler ──
@@ -120,11 +120,9 @@ public final class BhFsrPanel {
         boolean have = BhVkLayer.available(ctx);
         TextView layerHelp = text(11, GREY, false);
         layerHelp.setText(have
-                ? "How to use: set this game's resolution in its GameHub settings to your screen's "
-                + "(e.g. 1920x1080), and choose a lower resolution in the game's own video options "
-                + "(e.g. 960x540). The game then draws fewer pixels, and AMD FSR 1 upscales the picture "
-                + "to the GameHub resolution, sharper than a plain stretch. Works with any Wine build. "
-                + "Restart the game after changing."
+                ? "\"FSR to display\" upscales each frame from the game's resolution (set in its GameHub "
+                + "settings) to your display with AMD FSR 1, instead of a plain stretch. For more FPS, "
+                + "lower the GameHub resolution. Works with any Wine build. Restart the game after changing."
                 : "This build doesn't include the upscaler.");
         layer.addView(layerHelp, margins(0, 4, 0, 0));
         layerLine = text(12, GREY, false);
@@ -200,7 +198,7 @@ public final class BhFsrPanel {
         if (upscaling && m.get("output") != null) {
             outputValue.setText(m.get("output") + " (FSR 1)");
         } else {
-            outputValue.setText(wine != null ? size(wine) + " (no FSR)" : "—");
+            outputValue.setText(disp != null ? size(disp) + " (plain stretch)" : "—");
         }
         displayValue.setText(disp != null ? size(disp) : "—");
 
