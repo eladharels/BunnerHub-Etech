@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [cleanup] — In-game sidebar: Wine FSR and root-only toggles removed (2026-11-20)
+- Elad asked to remove in-game options we won't use; chose the Wine FSR section and the root-only toggles (kept: Konkr HUD, RTS controls, Task manager, AI Frame Generation, Dual Battery Mode).
+- FSR tab: the Wine fullscreen-hack FSR (on/off, strength, render-size mode, Wine support check, DXVK render-size reader) is gone; his Wine build reported "no FSR", and the BunnerHub upscaler works with any Wine. `BhFsr` is now only the launch hook for the layer; `BhWineLog` no longer captures `fsr-*.log`. The tab is **Resolution now** (game renders at: the layer's swapchain report or the Wine screen size; reaches the screen at: FSR output or plain stretch; display) and the **BunnerHub upscaler** card.
+- Performance tab: **Sustained Performance Mode** and **Max Adreno Clocks** rows hidden (`visibility="gone"` in `winemu_sidebar_hub_type_fragment.xml`; `BhPerfSetupDelegate` still finds them, harmless). Sustained Performance stays in Settings → Advanced.
+
 ### [feat] — Own Vulkan layer, step 2: FSR 1 upscaling to the display (2026-11-20)
 - After step 1 loaded on the device (GTA IV), Elad asked for step 2.
 - `tools/vklayer/bh_vklayer.c`: with `BH_VKLAYER_OUT=WxH` (the display size) the game's swapchain keeps the size it asks for, but its images are the layer's own (same format, mutable for a UNORM view, sampled); the real swapchain is created at the largest same-aspect size within WxH (max 4×) with TRANSFER_DST. At present one submit waits for the game's semaphores and runs a pre-recorded command buffer per image: AMD FidelityFX FSR 1 EASU (game image → A, output size) → RCAS (A → B, `BH_VKLAYER_SHARP` stops; writes BGRA order for BGRA swapchains) → byte copy B → real image; present waits on the layer's semaphore. Command buffers get the loader's dispatch through the loader-data callback. Suboptimal from acquire/present is hidden for these swapchains (the size mismatch is deliberate); if 3 of them go out of date within their first frames, upscaling switches off for the run. Formats handled: RGBA8/BGRA8 UNORM/sRGB; anything else, a refused swapchain or a setup failure falls back to pass-through with the reason in the status file (`upscale`, `output`, `sharp`, `note`).

@@ -17,7 +17,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.lang.reflect.Field;
-import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,9 +29,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * (patches/smali_classes16) only calls {@link #create}, {@link #onShown} and
  * {@link #onHidden}. Launch-time logic is in {@link BhFsr}.
  *
- * Shows, refreshed every second: the size the game renders at (DXVK's
- * swapchain), the Wine screen size FSR upscales to, the device display, and
- * the upscale factor. Settings are per game and apply on the next launch.
+ * Shows, refreshed every second: the size the game renders at (the Vulkan
+ * layer's swapchain report, else the Wine screen size), the size it reaches
+ * the screen at (FSR 1 output, or GameHub's plain stretch to the display),
+ * and the BunnerHub upscaler's settings and status ({@link BhVkLayer}).
+ * Settings are per game and apply on the next launch.
  */
 public final class BhFsrPanel {
 
@@ -38,37 +41,36 @@ public final class BhFsrPanel {
     private static final int GREY = 0xFF9DA0A6;
     private static final int GREEN = 0xFF4CD08A;
     private static final int AMBER = 0xFFFFB74D;
-    private static final int RED = 0xFFFF6B6B;
     private static final int CARD = 0x14FFFFFF;
     private static final int ACCENT = 0xFF6C63FF;
 
     private static Context ctx;
     private static String gameId;
-    private static TextView gameLine, wineLine, sessionLine, pendingLine;
-    private static TextView renderValue, outputValue, displayValue, factorValue, hintLine;
-    private static Button toggle, strengthLabel, modeButton, layerToggle, layerSharp;
-    private static TextView layerLine;
-    private static volatile String layerStatus;
+    private static TextView gameLine, renderValue, outputValue, displayValue, layerLine;
+    private static Button layerToggle, layerSharp;
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService io = Executors.newSingleThreadExecutor();
-    private static volatile int[] render;
+    private static volatile Map<String, String> status = new HashMap<>();
+    private static volatile String statusText;
     private static final AtomicBoolean reading = new AtomicBoolean();
     private static final Runnable refresher = new Runnable() {
         @Override
         public void run() {
-            if (renderValue == null) return;
+            if (layerLine == null) return;
             // Skip the work while the drawer is closed, and never queue a
-            // second log read behind one that is still running.
-            if (renderValue.isShown() && reading.compareAndSet(false, true)) {
+            // second read behind one that is still running.
+            if (layerLine.isShown() && reading.compareAndSet(false, true)) {
                 io.execute(() -> {
                     try {
-                        render = BhFsr.renderSize();
                         Context c = ctx;
-                        if (c != null) layerStatus = BhVkLayer.statusLine(c, gameId);
+                        String id = gameId;
+                        boolean running = c != null && id != null && id.equals(BhVkLayer.appliedGame);
+                        status = running ? BhVkLayer.status(c) : new HashMap<>();
+                        statusText = running ? BhVkLayer.statusLine(c, id) : null;
                     } finally {
                         reading.set(false);
                     }
-                    ui.post(BhFsrPanel::refreshSizes);
+                    ui.post(BhFsrPanel::refresh);
                 });
             }
             ui.postDelayed(this, 1000);
@@ -81,7 +83,8 @@ public final class BhFsrPanel {
     public static android.view.View create(Context context) {
         ctx = context;
         gameId = BhPlayTime.currentGameId();
-        render = null;
+        status = new HashMap<>();
+        statusText = null;
 
         ScrollView scroll = new ScrollView(ctx);
         scroll.setVerticalScrollBarEnabled(false);
@@ -105,82 +108,30 @@ public final class BhFsrPanel {
         sizesTitle.setText("Resolution now");
         sizes.addView(sizesTitle);
         renderValue = row(sizes, "Game renders at");
-        outputValue = row(sizes, "FSR upscales to (Wine screen)");
+        outputValue = row(sizes, "Reaches the screen at");
         displayValue = row(sizes, "Your display");
-        factorValue = row(sizes, "Upscale factor");
-        hintLine = text(11, GREY, false);
-        sizes.addView(hintLine, margins(0, 8, 0, 0));
 
-        // ── Status ──
-        LinearLayout status = card();
-        root.addView(status, margins(0, 12, 0, 0));
-        TextView statusTitle = text(14, WHITE, true);
-        statusTitle.setText("Status");
-        status.addView(statusTitle);
-        wineLine = text(12, GREY, false);
-        status.addView(wineLine, margins(0, 6, 0, 0));
-        sessionLine = text(12, GREY, false);
-        status.addView(sessionLine, margins(0, 4, 0, 0));
-        pendingLine = text(12, AMBER, false);
-        status.addView(pendingLine, margins(0, 4, 0, 0));
-
-        // ── Settings ──
-        LinearLayout settings = card();
-        root.addView(settings, margins(0, 12, 0, 0));
-        TextView setTitle = text(14, WHITE, true);
-        setTitle.setText("Settings for this game");
-        settings.addView(setTitle);
-
-        toggle = button("", true);
-        toggle.setOnClickListener(v -> {
-            if (gameId == null) return;
-            BhFsr.setEnabled(ctx, gameId, !BhFsr.enabled(ctx, gameId));
-            refreshSettings();
-        });
-        settings.addView(toggle, margins(0, 10, 0, 0));
-
-        TextView sharpTitle = text(12, GREY, false);
-        sharpTitle.setText("FSR strength (0 = sharpest, 5 = softest; default 2)");
-        settings.addView(sharpTitle, margins(0, 12, 0, 4));
-        LinearLayout sharpRow = new LinearLayout(ctx);
-        sharpRow.setGravity(Gravity.CENTER_VERTICAL);
-        Button minus = button("−", false);
-        minus.setOnClickListener(v -> changeStrength(-1));
-        strengthLabel = button("", false);
-        strengthLabel.setFocusable(false);
-        strengthLabel.setClickable(false);
-        Button plus = button("+", false);
-        plus.setOnClickListener(v -> changeStrength(1));
-        sharpRow.addView(minus);
-        sharpRow.addView(strengthLabel, weightMargins(1f, 8));
-        sharpRow.addView(plus, wrapLeft(8));
-        settings.addView(sharpRow);
-
-        TextView modeTitle = text(12, GREY, false);
-        modeTitle.setText("Render size");
-        settings.addView(modeTitle, margins(0, 12, 0, 4));
-        modeButton = button("", false);
-        modeButton.setOnClickListener(v -> cycleMode());
-        settings.addView(modeButton);
-
-        // ── BunnerHub Vulkan layer (test) ──
-        if (BhVkLayer.available(ctx)) {
-            LinearLayout layer = card();
-            root.addView(layer, margins(0, 12, 0, 0));
-            TextView layerTitle = text(14, WHITE, true);
-            layerTitle.setText("BunnerHub upscaler (test)");
-            layer.addView(layerTitle);
-            TextView layerHelp = text(11, GREY, false);
-            layerHelp.setText("Our own Vulkan layer, works with any Wine build. \"FSR to display\" upscales "
-                    + "each frame from the Wine screen size to your display with AMD FSR 1 instead of a "
-                    + "plain stretch. For more FPS, lower the resolution in this game's GameHub settings. "
-                    + "Don't use it together with the Wine FSR above. Restart the game after changing.");
-            layer.addView(layerHelp, margins(0, 4, 0, 0));
-            layerToggle = button("", false);
+        // ── Upscaler ──
+        LinearLayout layer = card();
+        root.addView(layer, margins(0, 12, 0, 0));
+        TextView layerTitle = text(14, WHITE, true);
+        layerTitle.setText("BunnerHub upscaler (test)");
+        layer.addView(layerTitle);
+        boolean have = BhVkLayer.available(ctx);
+        TextView layerHelp = text(11, GREY, false);
+        layerHelp.setText(have
+                ? "\"FSR to display\" upscales each frame from the game's resolution to your display "
+                + "with AMD FSR 1, instead of GameHub's plain stretch. Works with any Wine build. For more "
+                + "FPS, lower the resolution in this game's GameHub settings. Restart the game after changing."
+                : "This build doesn't include the upscaler.");
+        layer.addView(layerHelp, margins(0, 4, 0, 0));
+        layerLine = text(12, GREY, false);
+        if (have) {
+            layerToggle = button("", true);
             layerToggle.setOnClickListener(v -> {
                 if (gameId == null) return;
                 BhVkLayer.setMode(ctx, gameId, (BhVkLayer.mode(ctx, gameId) + 1) % BhVkLayer.MODE_LABELS.length);
-                refreshSettings();
+                refresh();
             });
             layer.addView(layerToggle, margins(0, 10, 0, 0));
             TextView sharpT = text(12, GREY, false);
@@ -189,34 +140,20 @@ public final class BhFsrPanel {
             LinearLayout lsRow = new LinearLayout(ctx);
             lsRow.setGravity(Gravity.CENTER_VERTICAL);
             Button lsMinus = button("−", false);
-            lsMinus.setOnClickListener(v -> changeLayerSharp(-1));
+            lsMinus.setOnClickListener(v -> changeSharp(-1));
             layerSharp = button("", false);
             layerSharp.setFocusable(false);
             layerSharp.setClickable(false);
             Button lsPlus = button("+", false);
-            lsPlus.setOnClickListener(v -> changeLayerSharp(1));
+            lsPlus.setOnClickListener(v -> changeSharp(1));
             lsRow.addView(lsMinus);
             lsRow.addView(layerSharp, weightMargins(1f, 8));
             lsRow.addView(lsPlus, wrapLeft(8));
             layer.addView(lsRow);
-            layerLine = text(12, GREY, false);
-            layer.addView(layerLine, margins(0, 8, 0, 0));
         }
+        layer.addView(layerLine, margins(0, 10, 0, 0));
 
-        TextView help = text(11, GREY, false);
-        help.setText("How it works: the game draws a smaller picture and Wine's FSR 1 upscales and "
-                + "sharpens it to the Wine screen size (the resolution set in the game's GameHub "
-                + "settings). Fewer pixels to draw means more FPS.\n"
-                + "• Changes apply the next time you start the game.\n"
-                + "• With \"Game's own setting\", choose a lower resolution in the game's video options "
-                + "and use fullscreen (not windowed or borderless).\n"
-                + "• Works for DirectX 9–12 games (DXVK / VKD3D). OpenGL games are not upscaled.\n"
-                + "• Needs a Proton/GE-based Wine that includes FSR; the Status line says whether yours does.\n"
-                + "• The render size is read from DXVK's output; DX12 games may show it as unknown.");
-        root.addView(help, margins(0, 16, 0, 0));
-
-        refreshSettings();
-        refreshSizes();
+        refresh();
         return scroll;
     }
 
@@ -235,85 +172,37 @@ public final class BhFsrPanel {
     public static void onDestroyed() {
         ui.removeCallbacks(refresher);
         ctx = null;
-        gameLine = wineLine = sessionLine = pendingLine = null;
-        renderValue = outputValue = displayValue = factorValue = hintLine = null;
-        toggle = strengthLabel = modeButton = layerToggle = layerSharp = null;
-        layerLine = null;
-        layerStatus = null;
+        gameLine = renderValue = outputValue = displayValue = layerLine = null;
+        layerToggle = layerSharp = null;
+        status = new HashMap<>();
+        statusText = null;
     }
 
-    // ── Actions ──────────────────────────────────────────────────────────────
-
-    private static void changeStrength(int delta) {
-        if (gameId == null) return;
-        BhFsr.setStrength(ctx, gameId, BhFsr.strength(ctx, gameId) + delta);
-        refreshSettings();
-    }
-
-    private static void changeLayerSharp(int delta) {
+    private static void changeSharp(int delta) {
         if (gameId == null) return;
         BhVkLayer.setSharp(ctx, gameId, BhVkLayer.sharp(ctx, gameId) + delta);
-        refreshSettings();
-    }
-
-    private static void cycleMode() {
-        if (gameId == null) return;
-        BhFsr.Mode[] all = BhFsr.Mode.values();
-        BhFsr.setMode(ctx, gameId, all[(BhFsr.mode(ctx, gameId).ordinal() + 1) % all.length]);
-        refreshSettings();
-        refreshSizes();
+        refresh();
     }
 
     // ── Display ──────────────────────────────────────────────────────────────
 
-    private static void refreshSettings() {
-        if (toggle == null || ctx == null) return;
-        boolean on = BhFsr.enabled(ctx, gameId);
-        int strength = BhFsr.strength(ctx, gameId);
-        BhFsr.Mode mode = BhFsr.mode(ctx, gameId);
-        BhFsr.Support sup = BhFsr.support();
-        boolean modeOk = sup == null || sup.state != BhFsr.Support.YES || sup.mode;
-
-        toggle.setText(on ? "FSR: ON" : "FSR: OFF");
-        refreshLayer();
-        strengthLabel.setText(String.valueOf(strength));
-        modeButton.setText(mode.label + (modeOk ? "" : " (not in this Wine)"));
-        modeButton.setEnabled(gameId != null && modeOk);
-
-        if (sup == null || sup.state == BhFsr.Support.UNKNOWN) {
-            wineLine.setTextColor(AMBER);
-            wineLine.setText("Wine build: couldn't check for FSR");
-        } else if (sup.state == BhFsr.Support.YES) {
-            wineLine.setTextColor(GREEN);
-            wineLine.setText("Wine build: supports FSR" + (sup.mode ? " (with render-size modes)" : ""));
+    private static void refresh() {
+        if (layerLine == null || ctx == null) return;
+        Map<String, String> m = status;
+        int[] disp = display();
+        int[] wine = wineScreen();
+        String sc = m.get("swapchain");
+        boolean upscaling = "on".equals(m.get("upscale"));
+        String render = sc != null && !sc.equals("0x0") ? sc : wine != null ? size(wine) : "—";
+        renderValue.setText(render);
+        if (upscaling && m.get("output") != null) {
+            outputValue.setText(m.get("output") + " (FSR 1)");
         } else {
-            wineLine.setTextColor(RED);
-            wineLine.setText("Wine build: no FSR. Pick a Proton/GE-based Wine in this game's settings.");
+            outputValue.setText(disp != null ? size(disp) + " (plain stretch)" : "—");
         }
+        displayValue.setText(disp != null ? size(disp) : "—");
 
-        BhFsr.Applied a = BhFsr.applied();
-        boolean thisGame = a != null && gameId != null && gameId.equals(a.gameId);
-        if (thisGame && a.on) {
-            sessionLine.setTextColor(GREEN);
-            sessionLine.setText("This session: FSR ON, strength " + a.strength + ", " + a.mode.label);
-        } else {
-            sessionLine.setTextColor(GREY);
-            sessionLine.setText("This session: FSR off");
-        }
-
-        boolean pending;
-        if (!thisGame) pending = on;
-        else if (a.on != on) pending = true;
-        else pending = on && (a.strength != strength || (modeOk && a.mode != mode));
-        if (on && sup != null && sup.state == BhFsr.Support.NO) {
-            pendingLine.setText("FSR stays off with this Wine build.");
-        } else {
-            pendingLine.setText(pending ? "Restart the game to apply your changes." : "");
-        }
-    }
-
-    private static void refreshLayer() {
-        if (layerToggle == null || ctx == null) return;
+        if (layerToggle == null) return;
         int mode = BhVkLayer.mode(ctx, gameId);
         int sharp = BhVkLayer.sharp(ctx, gameId);
         layerToggle.setText("Upscaler: " + BhVkLayer.MODE_LABELS[mode]);
@@ -322,7 +211,7 @@ public final class BhFsrPanel {
         boolean pending = running
                 ? (mode != BhVkLayer.appliedMode || (mode == BhVkLayer.UPSCALE && sharp != BhVkLayer.appliedSharp))
                 : mode != BhVkLayer.OFF;
-        String st = layerStatus;
+        String st = statusText;
         if (running && st != null) {
             boolean ok = st.startsWith("Layer: loaded") && !st.contains("upscale off");
             layerLine.setTextColor(ok ? GREEN : AMBER);
@@ -330,49 +219,6 @@ public final class BhFsrPanel {
         } else {
             layerLine.setTextColor(pending ? AMBER : GREY);
             layerLine.setText(pending ? "Restart the game to apply your changes." : "");
-        }
-    }
-
-    private static void refreshSizes() {
-        refreshLayer();
-        if (renderValue == null || ctx == null) return;
-        int[] out = wineScreen();
-        int[] disp = display();
-        int[] render = BhFsrPanel.render;
-        BhFsr.Applied a = BhFsr.applied();
-        boolean fsrNow = a != null && a.on && gameId != null && gameId.equals(a.gameId);
-
-        if (render != null) {
-            renderValue.setText(size(render));
-        } else if (fsrNow) {
-            renderValue.setText("waiting for DXVK…");
-        } else {
-            BhFsr.Mode mode = BhFsr.mode(ctx, gameId);
-            renderValue.setText("shown while FSR is on");
-            if (out != null && mode.value != null) {
-                renderValue.setText("~" + Math.round(out[0] / mode.scale) + "x"
-                        + Math.round(out[1] / mode.scale) + " with " + mode.label);
-            }
-        }
-        outputValue.setText(out != null ? size(out) : "unknown");
-        displayValue.setText(disp != null ? size(disp) : "unknown");
-
-        if (render != null && out != null && render[0] > 0) {
-            float f = out[0] / (float) render[0];
-            factorValue.setText(String.format(Locale.US, "%.2f×  (%d%% of the pixels)",
-                    f, Math.round(100f * render[0] * render[1] / ((float) out[0] * out[1]))));
-            if (!fsrNow) {
-                hintLine.setText("FSR is off this session: Wine stretches the picture without FSR.");
-            } else if (render[0] >= out[0] && render[1] >= out[1]) {
-                hintLine.setText("The game renders at full Wine screen size, so FSR has nothing to upscale. "
-                        + "Pick a lower resolution in the game (fullscreen) or a Render size mode.");
-            } else {
-                hintLine.setText("FSR is upscaling " + size(render) + " → " + size(out) + ".");
-            }
-        } else {
-            factorValue.setText("—");
-            hintLine.setText(fsrNow ? "The game's render size shows up once it draws its first frame "
-                    + "(DirectX games through DXVK)." : "");
         }
     }
 

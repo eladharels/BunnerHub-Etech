@@ -435,7 +435,9 @@ All position, orientation, and opacity settings are persisted in SharedPreferenc
 
 ### Performance Sidebar Toggles
 
-Located in the in-game **Performance sidebar tab**, above the Dual Battery Mode toggle. Both toggles persist their state in `bh_prefs` SharedPreferences and are re-applied automatically every time the Performance sidebar is opened.
+> **Removed from the in-game sidebar on 2026-11-20** (they only work on rooted phones). Sustained Performance Mode is still in **Settings → Advanced**.
+
+Were located in the in-game **Performance sidebar tab**, above the Dual Battery Mode toggle. Both toggles persist their state in `bh_prefs` SharedPreferences and are re-applied automatically every time the Performance sidebar is opened.
 
 > **WARNING — USE AT YOUR OWN RISK**
 >
@@ -799,21 +801,17 @@ Saved values show live; tap one to set it, **Freeze** it or delete it. They're r
 
 ### FSR Upscaling
 
-Per-game AMD FSR 1 upscaling through Wine's fullscreen hack (the `WINE_FULLSCREEN_FSR` feature of Proton / GE-Proton Wine builds). The game renders a smaller picture and Wine upscales and sharpens it to the Wine screen size, so the GPU draws fewer pixels. It's in the in-game sidebar (**☰** while playing) as the **FSR** tab.
+BunnerHub's own upscaler, in the in-game sidebar (**☰** while playing) as the **FSR** tab. It's a Vulkan layer (`tools/vklayer/bh_vklayer.c`, built by CI into the APK) that works with any Wine build, for games that present through Vulkan (DirectX 9–12 via DXVK / VKD3D-Proton).
 
-The tab shows, refreshed every second:
-- **Game renders at**: the game's swapchain size, read from DXVK's output
-- **FSR upscales to (Wine screen)**: the resolution set in the game's GameHub settings
-- **Your display**: the device panel
-- **Upscale factor**: e.g. `1.50× (44% of the pixels)`, with a note when the game is at full size and FSR has nothing to do
+**Resolution now** shows what the game renders at, what reaches the screen (FSR 1 output, or GameHub's plain stretch) and your display.
 
-Settings (per game, applied the next time the game starts): **FSR on/off**, **FSR strength** 0–5 (0 = sharpest, default 2) and **Render size**: *Game's own setting* (choose a lower resolution in the game's video options, fullscreen) or a fixed FSR mode (Ultra quality 77%, Quality 67%, Balanced 59%, Performance 50%) when the Wine build supports `WINE_FULLSCREEN_FSR_MODE`.
+Settings (per game, applied the next time the game starts):
+- **Upscaler**: *Off* / *On, report only* (loads the layer and reports, changes nothing) / *On, FSR to display*. With FSR the game keeps rendering at the Wine screen size set in its GameHub settings (lower it for more FPS), and each frame is upscaled to your display size with AMD FidelityFX FSR 1 (EASU, then RCAS sharpening) instead of GameHub's plain stretch.
+- **Sharpness** 1–5 (default 4).
 
-**Status** says whether the selected Wine build includes FSR (checked at each launch by looking for the FSR variables in Wine's `winex11` / `winevulkan` / `win32u` libraries), and what this session actually got. GameHub always launches Wine with `WINE_DISABLE_FULLSCREEN_HACK=1`; with FSR on, that variable is removed and `WINE_FULLSCREEN_FSR=1`, `WINE_FULLSCREEN_FSR_STRENGTH` and (optionally) `WINE_FULLSCREEN_FSR_MODE` are added. `DXVK_LOG_LEVEL` is raised from `warn` to `info` and the session's Wine output is saved to `/sdcard/BunnerHub-Etech/logs/fsr-<date>.log` (last 3 kept) so the render size can be read.
+The status line shows `Layer: loaded · swapchain 1280x720 · 60 fps` and `FSR 1: 1280x720 → 1920x1080`, or why upscaling is off (e.g. the graphics driver refused the larger frame; the game then runs as before). The app installs the library to `files/usr/lib/libbh_vklayer.so` and its manifest to `~/.config/vulkan/implicit_layer.d/bh_vklayer.json` (active only when the game's launch sets `BH_VKLAYER=1`).
 
-Limits: Vulkan presentation only, so DirectX 9–12 games through DXVK / VKD3D-Proton; OpenGL games aren't upscaled. The render size comes from DXVK, so DX12 games may show it as unknown.
-
-**BunnerHub upscaler (test)**: our own upscaler, a Vulkan layer (`tools/vklayer/bh_vklayer.c`, built by CI into the APK) that works with any Wine build. In the FSR tab, **Upscaler** cycles *Off* / *On, report only* / *On, FSR to display*; restart the game after changing. With *FSR to display* the game keeps rendering at the Wine screen size (set in its GameHub settings; lower it for more FPS) and each frame is upscaled to your display size with AMD FidelityFX FSR 1 (EASU, then RCAS sharpening, **Sharpness** 1–5) instead of GameHub's plain stretch. The status line shows `Layer: loaded · swapchain 1280x720 · 60 fps` and `FSR 1: 1280x720 → 1920x1080`, or why upscaling is off (e.g. the graphics driver refused the larger frame; the game then runs as before). The app installs the library to `files/usr/lib/libbh_vklayer.so` and its manifest to `~/.config/vulkan/implicit_layer.d/bh_vklayer.json` (active only when the game's launch sets `BH_VKLAYER=1`). Don't combine it with the Wine FSR option above.
+The earlier Wine fullscreen-hack FSR (`WINE_FULLSCREEN_FSR`, Proton/GE Wine builds only) was removed from the tab on 2026-11-20.
 
 ---
 
@@ -848,7 +846,7 @@ Install steps (system image, container, components) are never skipped: a game wh
 | **Compatibility API Source** | Choose which backend serves the component/compatibility catalog — **GameHub** (official), **EmuReady**, or **BannerHub**. Opens a 3-option picker. See [Compatibility API Source](#compatibility-api-source-gamehub--emuready--bannerhub) below for what each offers |
 | **CPU Usage Display** | Show/hide CPU usage overlay during gameplay |
 | **Performance Metrics** | Show/hide full performance metrics overlay |
-| **Sustained Performance Mode** | Same toggle as the Performance sidebar — available here for convenience outside a running game |
+| **Sustained Performance Mode** | Keeps the device at a steady performance level (the in-game sidebar copy was removed) |
 | **Grant Root Access** | Opens a warning dialog, then runs `su -c id` on a background thread and stores the result. Performance sidebar reads this pref to enable or grey out the root-dependent toggles — no unsolicited root popup on sidebar open |
 
 ---
@@ -966,7 +964,7 @@ GameHub firmware 1.4.8 and newer removes the graphics library (`libGameScopeVK.s
 
 **Q: Does BannerHub require root?**
 
-Most features work without root. The only features that require root are the two Performance sidebar toggles (Sustained Performance Mode and Max Adreno Clocks) — both are greyed out and non-interactive on non-rooted devices. All other features — the GOG, Amazon, and Epic Games tabs, Component Manager, component downloader, Winlator HUD, RTS controls, VRAM unlock, core affinity, offline modes, and settings — work on any non-rooted Android device.
+Most features work without root. The two root-only toggles (Sustained Performance Mode and Max Adreno Clocks) were removed from the in-game Performance tab. All other features — the GOG, Amazon, and Epic Games tabs, Component Manager, component downloader, Winlator HUD, RTS controls, VRAM unlock, core affinity, offline modes, and settings — work on any non-rooted Android device.
 
 **Q: Will this replace my existing GameHub install?**
 

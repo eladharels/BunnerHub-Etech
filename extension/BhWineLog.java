@@ -38,9 +38,6 @@ import java.util.Locale;
  * shell execs into the original argv, so the PID that GameHub records (and
  * later kills) is still the Wine process. Children inherit fds 1 and 2.
  *
- * Capture is also on while FSR upscaling is on for the game (BhFsr), which
- * reads the render size from DXVK's output.
- *
  * Any failure returns the arguments unchanged: worst case is stock GameHub.
  */
 public final class BhWineLog {
@@ -48,7 +45,6 @@ public final class BhWineLog {
     private static final String TAG = "BhWineLog";
     private static final String LOG_DIR = "BunnerHub-Etech/logs";
     private static final int KEEP_LOGS = 10;
-    private static final int KEEP_FSR_LOGS = 3;
     /** Launchers started within this window share one session file. */
     private static final long SESSION_WINDOW_MS = 120_000;
 
@@ -57,7 +53,7 @@ public final class BhWineLog {
 
     private BhWineLog() {}
 
-    /** Applies per-game FSR (BhFsr) and adds FEX logging switches when debugging. */
+    /** Applies the per-game upscaler (BhFsr) and adds FEX logging switches when debugging. */
     public static String[] env(String[] env) {
         env = BhFsr.env(env);
         try {
@@ -83,15 +79,9 @@ public final class BhWineLog {
         // Mark where this session starts in /sdcard/wine.log, for crash reports.
         BhCrashReporter.onLaunch();
         try {
-            // FSR on: capture too, so BhFsr can read DXVK's swapchain size.
-            // Those captures get their own "fsr-" files so they never push
-            // out debug logs a user kept.
-            boolean debug = isEnabled(env);
-            boolean fsr = BhFsr.isOn(env);
-            if (!debug && !fsr) return argv;
-            File log = debug ? sessionFile("wine-", KEEP_LOGS) : sessionFile("fsr-", KEEP_FSR_LOGS);
+            if (!isEnabled(env)) return argv;
+            File log = sessionFile("wine-", KEEP_LOGS);
             if (log == null) return argv;
-            if (fsr) BhFsr.markLaunch(log);
             writeHeader(log, argv, env);
 
             String[] out = new String[argv.length + 4];

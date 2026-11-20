@@ -66,6 +66,8 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 ## 7. FSR upscaling ◐
 
+**2026-11-20:** the Wine FSR option (v1 below) was removed from the FSR tab; the tab is now the BunnerHub upscaler (own Vulkan layer, below).
+
 **Status (2026-11-17):** v1 implemented, not yet device-tested. Option 1 from the upscaling discussion: Wine's own FSR 1 (`WINE_FULLSCREEN_FSR`, Proton / GE-Proton fullscreen hack) switched per game from a new **FSR** sidebar tab. `extension/BhFsr.java` (launch env + Wine support check + DXVK render-size reader), `extension/BhFsrPanel.java` (UI), `BhWineLog.env/command` (hook), sidebar tab via `BhFsrFragment.smali` + `BhFsrClickListener.smali`, `WineActivityDrawerContent` (`U()` branch, click wiring), icon `sidebar_fsr.xml`.
 
 **To test on the device:** does the Status line say the Wine build supports FSR (which Wine builds do)? Does removing `WINE_DISABLE_FULLSCREEN_HACK` break anything (GameHub sets it for every game)? With a lower in-game fullscreen resolution, does "Game renders at" drop and FPS rise? Do the render-size modes work?
