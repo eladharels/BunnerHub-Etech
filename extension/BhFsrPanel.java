@@ -46,7 +46,7 @@ public final class BhFsrPanel {
     private static String gameId;
     private static TextView gameLine, wineLine, sessionLine, pendingLine;
     private static TextView renderValue, outputValue, displayValue, factorValue, hintLine;
-    private static Button toggle, strengthLabel, modeButton, layerToggle;
+    private static Button toggle, strengthLabel, modeButton, layerToggle, layerSharp;
     private static TextView layerLine;
     private static volatile String layerStatus;
     private static final Handler ui = new Handler(Looper.getMainLooper());
@@ -171,17 +171,34 @@ public final class BhFsrPanel {
             layerTitle.setText("BunnerHub upscaler (test)");
             layer.addView(layerTitle);
             TextView layerHelp = text(11, GREY, false);
-            layerHelp.setText("Our own Vulkan layer, the base for upscaling that works with any Wine. "
-                    + "This test version changes nothing in the picture; it only checks that it "
-                    + "can load into the game and reports what it sees. Restart the game after switching.");
+            layerHelp.setText("Our own Vulkan layer, works with any Wine build. \"FSR to display\" upscales "
+                    + "each frame from the Wine screen size to your display with AMD FSR 1 instead of a "
+                    + "plain stretch. For more FPS, lower the resolution in this game's GameHub settings. "
+                    + "Don't use it together with the Wine FSR above. Restart the game after changing.");
             layer.addView(layerHelp, margins(0, 4, 0, 0));
             layerToggle = button("", false);
             layerToggle.setOnClickListener(v -> {
                 if (gameId == null) return;
-                BhVkLayer.setEnabled(ctx, gameId, !BhVkLayer.enabled(ctx, gameId));
+                BhVkLayer.setMode(ctx, gameId, (BhVkLayer.mode(ctx, gameId) + 1) % BhVkLayer.MODE_LABELS.length);
                 refreshSettings();
             });
             layer.addView(layerToggle, margins(0, 10, 0, 0));
+            TextView sharpT = text(12, GREY, false);
+            sharpT.setText("Sharpness");
+            layer.addView(sharpT, margins(0, 12, 0, 4));
+            LinearLayout lsRow = new LinearLayout(ctx);
+            lsRow.setGravity(Gravity.CENTER_VERTICAL);
+            Button lsMinus = button("−", false);
+            lsMinus.setOnClickListener(v -> changeLayerSharp(-1));
+            layerSharp = button("", false);
+            layerSharp.setFocusable(false);
+            layerSharp.setClickable(false);
+            Button lsPlus = button("+", false);
+            lsPlus.setOnClickListener(v -> changeLayerSharp(1));
+            lsRow.addView(lsMinus);
+            lsRow.addView(layerSharp, weightMargins(1f, 8));
+            lsRow.addView(lsPlus, wrapLeft(8));
+            layer.addView(lsRow);
             layerLine = text(12, GREY, false);
             layer.addView(layerLine, margins(0, 8, 0, 0));
         }
@@ -220,7 +237,7 @@ public final class BhFsrPanel {
         ctx = null;
         gameLine = wineLine = sessionLine = pendingLine = null;
         renderValue = outputValue = displayValue = factorValue = hintLine = null;
-        toggle = strengthLabel = modeButton = layerToggle = null;
+        toggle = strengthLabel = modeButton = layerToggle = layerSharp = null;
         layerLine = null;
         layerStatus = null;
     }
@@ -230,6 +247,12 @@ public final class BhFsrPanel {
     private static void changeStrength(int delta) {
         if (gameId == null) return;
         BhFsr.setStrength(ctx, gameId, BhFsr.strength(ctx, gameId) + delta);
+        refreshSettings();
+    }
+
+    private static void changeLayerSharp(int delta) {
+        if (gameId == null) return;
+        BhVkLayer.setSharp(ctx, gameId, BhVkLayer.sharp(ctx, gameId) + delta);
         refreshSettings();
     }
 
@@ -291,16 +314,22 @@ public final class BhFsrPanel {
 
     private static void refreshLayer() {
         if (layerToggle == null || ctx == null) return;
-        boolean on = BhVkLayer.enabled(ctx, gameId);
-        layerToggle.setText(on ? "Layer test: ON" : "Layer test: OFF");
+        int mode = BhVkLayer.mode(ctx, gameId);
+        int sharp = BhVkLayer.sharp(ctx, gameId);
+        layerToggle.setText("Upscaler: " + BhVkLayer.MODE_LABELS[mode]);
+        layerSharp.setText((sharp + 1) + " / " + BhVkLayer.SHARP_LEVELS);
         boolean running = gameId != null && gameId.equals(BhVkLayer.appliedGame);
+        boolean pending = running
+                ? (mode != BhVkLayer.appliedMode || (mode == BhVkLayer.UPSCALE && sharp != BhVkLayer.appliedSharp))
+                : mode != BhVkLayer.OFF;
         String st = layerStatus;
         if (running && st != null) {
-            layerLine.setTextColor(st.startsWith("Layer: loaded") ? GREEN : AMBER);
-            layerLine.setText(on ? st : st + "\nRestart the game to switch it off.");
+            boolean ok = st.startsWith("Layer: loaded") && !st.contains("upscale off");
+            layerLine.setTextColor(ok ? GREEN : AMBER);
+            layerLine.setText(pending ? st + "\nRestart the game to apply your changes." : st);
         } else {
-            layerLine.setTextColor(on ? AMBER : GREY);
-            layerLine.setText(on ? "Restart the game to load the layer." : "");
+            layerLine.setTextColor(pending ? AMBER : GREY);
+            layerLine.setText(pending ? "Restart the game to apply your changes." : "");
         }
     }
 

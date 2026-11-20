@@ -38,8 +38,15 @@ public final class BhVkLayer {
     private static final String MANIFEST = "bh_vklayer.json";
     private static final String STATUS = "bh_vklayer_status.txt";
 
-    /** Game id the last launch switched the layer on for (this process). */
+    /** Game id the last launch switched the layer on for (this process), and what it got. */
     static volatile String appliedGame;
+    static volatile int appliedMode, appliedSharp;
+
+    static final int OFF = 0, REPORT = 1, UPSCALE = 2;
+    static final String[] MODE_LABELS = {"Off", "On, report only", "On, FSR to display"};
+    /** RCAS sharpness in stops (0 = sharpest), for levels 1..5 shown as "5/5 … 1/5". */
+    private static final float[] SHARP_STOPS = {2.0f, 1.0f, 0.5f, 0.25f, 0.0f};
+    static final int SHARP_LEVELS = SHARP_STOPS.length, DEFAULT_SHARP = 3;
 
     private BhVkLayer() {}
 
@@ -49,12 +56,45 @@ public final class BhVkLayer {
         return ctx.getApplicationContext().getSharedPreferences("bh_fsr", Context.MODE_PRIVATE);
     }
 
-    static boolean enabled(Context ctx, String gameId) {
-        return gameId != null && prefs(ctx).getBoolean("layer_" + gameId, false);
+    static int mode(Context ctx, String gameId) {
+        if (gameId == null) return OFF;
+        SharedPreferences p = prefs(ctx);
+        int m = p.getInt("layer_mode_" + gameId, -1);
+        if (m < 0) m = p.getBoolean("layer_" + gameId, false) ? REPORT : OFF; /* step 1's switch */
+        return Math.max(OFF, Math.min(UPSCALE, m));
     }
 
-    static void setEnabled(Context ctx, String gameId, boolean on) {
-        if (gameId != null) prefs(ctx).edit().putBoolean("layer_" + gameId, on).apply();
+    static void setMode(Context ctx, String gameId, int mode) {
+        if (gameId != null) prefs(ctx).edit().putInt("layer_mode_" + gameId, mode).apply();
+    }
+
+    static boolean enabled(Context ctx, String gameId) {
+        return mode(ctx, gameId) != OFF;
+    }
+
+    /** Sharpness level 0..SHARP_LEVELS-1 (higher = sharper). */
+    static int sharp(Context ctx, String gameId) {
+        int v = gameId == null ? DEFAULT_SHARP : prefs(ctx).getInt("layer_sharp_" + gameId, DEFAULT_SHARP);
+        return Math.max(0, Math.min(SHARP_LEVELS - 1, v));
+    }
+
+    static void setSharp(Context ctx, String gameId, int v) {
+        if (gameId != null)
+            prefs(ctx).edit().putInt("layer_sharp_" + gameId, Math.max(0, Math.min(SHARP_LEVELS - 1, v))).apply();
+    }
+
+    /** The display's full size in landscape, as "WxH", or null. */
+    private static String displaySize(Context ctx) {
+        try {
+            android.view.WindowManager wm =
+                    (android.view.WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            android.graphics.Point p = new android.graphics.Point();
+            wm.getDefaultDisplay().getRealSize(p);
+            int w = Math.max(p.x, p.y), h = Math.min(p.x, p.y);
+            return w > 0 && h > 0 ? w + "x" + h : null;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /** True when this build carries the layer. */
@@ -98,14 +138,25 @@ public final class BhVkLayer {
             for (File dir : manifestDirs(ctx, env)) writeIfChanged(new File(dir, MANIFEST), json);
 
             List<String> out = new ArrayList<>(Arrays.asList(env));
-            remove(out, "BH_VKLAYER");
-            remove(out, "BH_VKLAYER_STATUS");
+            String id = BhPlayTime.currentGameId();
+            int mode = mode(ctx, id);
+            int sharp = sharp(ctx, id);
+            String display = mode == UPSCALE ? displaySize(ctx) : null;
+            for (String k : new String[] {"BH_VKLAYER", "BH_VKLAYER_STATUS", "BH_VKLAYER_OUT", "BH_VKLAYER_SHARP"})
+                remove(out, k);
             out.add("BH_VKLAYER=1");
             out.add("BH_VKLAYER_STATUS=" + statusFile(ctx).getAbsolutePath());
+            if (display != null) {
+                out.add("BH_VKLAYER_OUT=" + display);
+                out.add("BH_VKLAYER_SHARP=" + SHARP_STOPS[sharp]);
+            }
             // A report left by an earlier game must not look like this one's.
             statusFile(ctx).delete();
-            appliedGame = BhPlayTime.currentGameId();
-            Log.i(TAG, "layer on for " + appliedGame);
+            appliedGame = id;
+            appliedMode = display != null ? UPSCALE : REPORT;
+            appliedSharp = sharp;
+            Log.i(TAG, "layer on for " + id + (display != null ? ", FSR to " + display + ", sharpness "
+                    + SHARP_STOPS[sharp] : ", report only"));
             return out.toArray(new String[0]);
         } catch (Throwable t) {
             Log.w(TAG, "layer not installed", t);
@@ -180,6 +231,12 @@ public final class BhVkLayer {
         if (sc != null && !sc.equals("0x0")) b.append(" · swapchain ").append(sc);
         if (fps != null && age < 5) b.append(" · ").append(fps).append(" fps");
         if (age >= 5) b.append(" · not presenting right now");
+        if ("on".equals(m.get("upscale"))) {
+            b.append("\nFSR 1: ").append(sc).append(" → ").append(m.get("output"));
+        } else {
+            String note = m.get("note");
+            if (note != null && !note.isEmpty()) b.append("\n").append(note);
+        }
         String app = m.get("app");
         if (app != null && !app.isEmpty()) b.append("\nApp: ").append(app);
         return b.toString();

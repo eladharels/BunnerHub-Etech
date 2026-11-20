@@ -1111,10 +1111,12 @@ jobs:
         run: |
           # An implicit Vulkan layer loaded into the game's Wine through
           # ~/.config/vulkan/implicit_layer.d when BH_VKLAYER=1 (per game, FSR tab).
+          # Upscales with AMD FSR 1; the shaders are tools/vklayer/shaders/*.comp, compiled to the
+          # committed *.spv.h headers with: glslangValidator -V --vn bh_<name>_spv -o <name>.spv.h <name>.comp
           # See tools/vklayer/bh_vklayer.c and extension/BhVkLayer.java.
           CC="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
           "$CC" -shared -fPIC -O2 -fvisibility=hidden -Wall -Werror -Wl,-z,defs \
-            -o apktool_out/assets/bunnerhub-etech/libbh_vklayer.so tools/vklayer/bh_vklayer.c -llog
+            -o apktool_out/assets/bunnerhub-etech/libbh_vklayer.so tools/vklayer/bh_vklayer.c -llog -lm
           "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
             apktool_out/assets/bunnerhub-etech/libbh_vklayer.so
           "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only \
