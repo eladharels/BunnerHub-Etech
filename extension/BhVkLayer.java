@@ -27,8 +27,11 @@ import java.util.Map;
  * The layer's manifest there has enable_environment BH_VKLAYER=1, so it loads
  * only into games whose launch environment sets that (BhFsr.env, per game).
  *
- * Step 1: the layer changes nothing; it reports the game's swapchain and frame
- * rate in a status file (BH_VKLAYER_STATUS), shown in the FSR tab.
+ * It reports the game's swapchain and frame rate in a status file
+ * (BH_VKLAYER_STATUS), shown in the FSR tab. With "FSR upscaling" it also sets
+ * BH_VKLAYER_UPSCALE=1: the game renders at its own (lower) resolution and the
+ * layer upscales it with FSR 1 to the window, i.e. the Wine screen size set in
+ * the game's GameHub settings (see tools/vklayer/bh_vklayer.c).
  */
 public final class BhVkLayer {
 
@@ -43,7 +46,7 @@ public final class BhVkLayer {
     static volatile int appliedMode, appliedSharp;
 
     static final int OFF = 0, REPORT = 1, UPSCALE = 2;
-    static final String[] MODE_LABELS = {"Off", "On, report only", "On, FSR to display"};
+    static final String[] MODE_LABELS = {"Off", "On, report only", "On, FSR upscaling"};
     /** RCAS sharpness in stops (0 = sharpest), for levels 1..5 shown as "5/5 … 1/5". */
     private static final float[] SHARP_STOPS = {2.0f, 1.0f, 0.5f, 0.25f, 0.0f};
     static final int SHARP_LEVELS = SHARP_STOPS.length, DEFAULT_SHARP = 3;
@@ -81,20 +84,6 @@ public final class BhVkLayer {
     static void setSharp(Context ctx, String gameId, int v) {
         if (gameId != null)
             prefs(ctx).edit().putInt("layer_sharp_" + gameId, Math.max(0, Math.min(SHARP_LEVELS - 1, v))).apply();
-    }
-
-    /** The display's full size in landscape, as "WxH", or null. */
-    private static String displaySize(Context ctx) {
-        try {
-            android.view.WindowManager wm =
-                    (android.view.WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
-            android.graphics.Point p = new android.graphics.Point();
-            wm.getDefaultDisplay().getRealSize(p);
-            int w = Math.max(p.x, p.y), h = Math.min(p.x, p.y);
-            return w > 0 && h > 0 ? w + "x" + h : null;
-        } catch (Throwable t) {
-            return null;
-        }
     }
 
     /** True when this build carries the layer. */
@@ -141,22 +130,21 @@ public final class BhVkLayer {
             String id = BhPlayTime.currentGameId();
             int mode = mode(ctx, id);
             int sharp = sharp(ctx, id);
-            String display = mode == UPSCALE ? displaySize(ctx) : null;
-            for (String k : new String[] {"BH_VKLAYER", "BH_VKLAYER_STATUS", "BH_VKLAYER_OUT", "BH_VKLAYER_SHARP"})
+            boolean upscale = mode == UPSCALE;
+            for (String k : new String[] {"BH_VKLAYER", "BH_VKLAYER_STATUS", "BH_VKLAYER_UPSCALE", "BH_VKLAYER_SHARP"})
                 remove(out, k);
             out.add("BH_VKLAYER=1");
             out.add("BH_VKLAYER_STATUS=" + statusFile(ctx).getAbsolutePath());
-            if (display != null) {
-                out.add("BH_VKLAYER_OUT=" + display);
+            if (upscale) {
+                out.add("BH_VKLAYER_UPSCALE=1");
                 out.add("BH_VKLAYER_SHARP=" + SHARP_STOPS[sharp]);
             }
             // A report left by an earlier game must not look like this one's.
             statusFile(ctx).delete();
             appliedGame = id;
-            appliedMode = display != null ? UPSCALE : REPORT;
+            appliedMode = upscale ? UPSCALE : REPORT;
             appliedSharp = sharp;
-            Log.i(TAG, "layer on for " + id + (display != null ? ", FSR to " + display + ", sharpness "
-                    + SHARP_STOPS[sharp] : ", report only"));
+            Log.i(TAG, "layer on for " + id + (upscale ? ", FSR, sharpness " + SHARP_STOPS[sharp] : ", report only"));
             return out.toArray(new String[0]);
         } catch (Throwable t) {
             Log.w(TAG, "layer not installed", t);

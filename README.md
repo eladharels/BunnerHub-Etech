@@ -803,13 +803,15 @@ Saved values show live; tap one to set it, **Freeze** it or delete it. They're r
 
 BunnerHub's own upscaler, in the in-game sidebar (**☰** while playing) as the **FSR** tab. It's a Vulkan layer (`tools/vklayer/bh_vklayer.c`, built by CI into the APK) that works with any Wine build, for games that present through Vulkan (DirectX 9–12 via DXVK / VKD3D-Proton).
 
-**Resolution now** shows what the game renders at, what reaches the screen (FSR 1 output, or GameHub's plain stretch) and your display.
+**Resolution now** shows what the game renders at, what FSR upscales it to (the Wine screen) and your display.
+
+How to use it: set the game's resolution in its **GameHub settings** to your screen's (e.g. 1920x1080), and choose a lower resolution in the **game's own video options** (e.g. 960x540). The game draws fewer pixels, and AMD FidelityFX FSR 1 (EASU, then RCAS sharpening) upscales its picture to the GameHub resolution instead of a plain stretch.
 
 Settings (per game, applied the next time the game starts):
-- **Upscaler**: *Off* / *On, report only* (loads the layer and reports, changes nothing) / *On, FSR to display*. With FSR the game keeps rendering at the Wine screen size set in its GameHub settings (lower it for more FPS), and each frame is upscaled to your display size with AMD FidelityFX FSR 1 (EASU, then RCAS sharpening) instead of GameHub's plain stretch.
+- **Upscaler**: *Off* / *On, report only* (loads the layer and reports, changes nothing) / *On, FSR upscaling*.
 - **Sharpness** 1–5 (default 4).
 
-The status line shows `Layer: loaded · swapchain 1280x720 · 60 fps` and `FSR 1: 1280x720 → 1920x1080`, or why upscaling is off (e.g. the graphics driver refused the larger frame; the game then runs as before). The app installs the library to `files/usr/lib/libbh_vklayer.so` and its manifest to `~/.config/vulkan/implicit_layer.d/bh_vklayer.json` (active only when the game's launch sets `BH_VKLAYER=1`).
+The status line shows `Layer: loaded · swapchain 960x540 · 60 fps` and `FSR 1: 960x540 → 1920x1080`, or why it isn't upscaling (e.g. the game draws at the window size because its own resolution isn't lower, or Wine fixes the swapchain size). How: the layer reports the window as freely sizable, so DXVK makes its swapchain the size of the game's back buffer instead of scaling it itself; the layer upscales that into a window-sized swapchain at present. (GameHub crops a frame larger than the window, as the first device test showed, so the upscale has to stay within the window.) The app installs the library to `files/usr/lib/libbh_vklayer.so` and its manifest to `~/.config/vulkan/implicit_layer.d/bh_vklayer.json` (active only when the game's launch sets `BH_VKLAYER=1`).
 
 The earlier Wine fullscreen-hack FSR (`WINE_FULLSCREEN_FSR`, Proton/GE Wine builds only) was removed from the tab on 2026-11-20.
 

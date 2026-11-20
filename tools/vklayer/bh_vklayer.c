@@ -6,16 +6,20 @@
  * It reports the game's swapchain and frame rate in a status file
  * (BH_VKLAYER_STATUS) and the Android log (tag "BhVkLayer").
  *
- * Upscaling (step 2): with BH_VKLAYER_OUT=WxH (the display size) the game
- * gets swapchain images of the size it asked for (the Wine screen size), the
- * real swapchain is created larger (same aspect, up to WxH), and at present
- * each frame goes through AMD FidelityFX FSR 1 (EASU upscale, then RCAS
- * sharpening, BH_VKLAYER_SHARP stops, 0 = sharpest) into it. GameHub's
- * GameScopeVK driver hands swapchain images to its renderer as hardware
- * buffers, which draws them full screen, so the frame should reach the screen
- * at the larger size instead of being stretched with a plain resize. If the
- * driver refuses the larger swapchain or anything fails, the layer falls back
- * to pass-through and says why in the status file.
+ * Upscaling (step 2): GameHub's renderer shows a window's frame at the
+ * window size (a larger frame is cropped, as tested on the device), so the
+ * upscale has to happen inside the window. With BH_VKLAYER_UPSCALE=1 the
+ * layer reports the window surface as freely sizable (currentExtent
+ * 0xFFFFFFFF, min 1x1, max the window), so DXVK makes its swapchain the size
+ * of the game's own back buffer (the resolution chosen in the game) instead
+ * of scaling it to the window itself. The game gets layer-owned images of
+ * that size; the real swapchain has the window size, and at present each
+ * frame goes through AMD FidelityFX FSR 1 (EASU upscale, then RCAS
+ * sharpening, BH_VKLAYER_SHARP stops, 0 = sharpest) into it. If Wine fixes
+ * the size anyway, the game draws at the window size and nothing changes. If
+ * anything fails, or the driver or Wine keep making the game recreate its
+ * swapchain, the layer falls back to pass-through and says why in the status
+ * file.
  *
  * Built by CI with the Android NDK (bionic, arm64-v8a); also builds on desktop
  * Linux for testing with a software Vulkan driver. Shaders: the .comp files in shaders/,
@@ -168,6 +172,7 @@ typedef struct {
     PFN_vkDestroyInstance destroy_instance;
     PFN_vkGetPhysicalDeviceMemoryProperties mem_props;
     PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR surface_caps;
+    PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
     PFN_vkGetPhysicalDeviceFormatProperties format_props;
 } instance_entry;
 
@@ -257,6 +262,22 @@ static upscaler *g_swapchains[MAX_SWAPCHAINS];
 /* If the driver keeps calling the larger swapchains out of date, the game would recreate its
    swapchain over and over: after 3 that fail within their first frames, stop upscaling. */
 static int g_rejected, g_upscale_disabled;
+static double g_created[8]; /* when the last upscaled swapchains were made (ring) */
+static int g_created_next;
+
+/* 8 upscaled swapchains within 10 s means something (Wine, the driver) makes the game
+   recreate it over and over: stop upscaling. Called with g_lock held. */
+static void count_creation(void) {
+    double t = now_s();
+    double oldest = g_created[g_created_next];
+    g_created[g_created_next] = t;
+    g_created_next = (g_created_next + 1) % 8;
+    if (oldest > 0 && t - oldest < 10.0 && !g_upscale_disabled) {
+        g_upscale_disabled = 1;
+        snprintf(g_stat.note, sizeof g_stat.note, "upscale off: the game keeps having to recreate its swapchain");
+        logf_("%s", g_stat.note);
+    }
+}
 
 static void out_of_date(upscaler *u) {
     if (!u || u->presents >= 10 || g_upscale_disabled) return;
@@ -264,7 +285,7 @@ static void out_of_date(upscaler *u) {
     if (++g_rejected >= 3) {
         g_upscale_disabled = 1;
         snprintf(g_stat.note, sizeof g_stat.note,
-                 "upscale off: the driver keeps rejecting the larger swapchain (out of date)");
+                 "upscale off: the game keeps having to recreate its swapchain");
         logf_("%s", g_stat.note);
         write_status();
     }
@@ -617,19 +638,9 @@ static VkResult record(upscaler *u, uint32_t family) {
     return VK_SUCCESS;
 }
 
-/* BH_VKLAYER_OUT=WxH → the larger size for a game swapchain of `in`, or 0x0 for none. */
-static VkExtent2D target_size(VkExtent2D in) {
-    VkExtent2D none = {0, 0};
-    const char *s = getenv("BH_VKLAYER_OUT");
-    unsigned w = 0, h = 0;
-    if (!s || sscanf(s, "%ux%u", &w, &h) != 2 || !w || !h || !in.width || !in.height) return none;
-    double f = fmin((double)w / in.width, (double)h / in.height);
-    if (f < 1.05) return none; /* already at (about) the display size */
-    if (f > 4.0) f = 4.0;
-    VkExtent2D out = {(uint32_t)(in.width * f + 0.5), (uint32_t)(in.height * f + 0.5)};
-    if (out.width > w) out.width = w;
-    if (out.height > h) out.height = h;
-    return out;
+static int upscale_wanted(void) {
+    const char *s = getenv("BH_VKLAYER_UPSCALE");
+    return s && !strcmp(s, "1");
 }
 
 static float sharpness(void) {
@@ -667,6 +678,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateInstance(const VkInstanceCreateIn
         e->mem_props = (PFN_vkGetPhysicalDeviceMemoryProperties)next_gipa(*out, "vkGetPhysicalDeviceMemoryProperties");
         e->surface_caps = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)next_gipa(
             *out, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+        e->surface_caps2 = (PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR)next_gipa(
+            *out, "vkGetPhysicalDeviceSurfaceCapabilities2KHR");
         e->format_props = (PFN_vkGetPhysicalDeviceFormatProperties)next_gipa(*out, "vkGetPhysicalDeviceFormatProperties");
         break;
     }
@@ -782,6 +795,40 @@ static VKAPI_ATTR void VKAPI_CALL bh_GetDeviceQueue2(VkDevice device, const VkDe
     pthread_mutex_unlock(&g_lock);
 }
 
+/* ── Surface size: let the game's swapchain be smaller than the window ── */
+
+static void flexible_extent(VkSurfaceCapabilitiesKHR *c) {
+    if (!upscale_wanted() || g_upscale_disabled || c->currentExtent.width == 0xFFFFFFFFu) return;
+    if (c->maxImageExtent.width < c->currentExtent.width) c->maxImageExtent = c->currentExtent;
+    c->currentExtent.width = c->currentExtent.height = 0xFFFFFFFFu;
+    c->minImageExtent.width = c->minImageExtent.height = 1;
+}
+
+static VKAPI_ATTR VkResult VKAPI_CALL bh_GetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice phys,
+                                                                                 VkSurfaceKHR surface,
+                                                                                 VkSurfaceCapabilitiesKHR *caps) {
+    pthread_mutex_lock(&g_lock);
+    instance_entry *ie = find_instance(phys);
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR next = ie ? ie->surface_caps : NULL;
+    pthread_mutex_unlock(&g_lock);
+    if (!next) return VK_ERROR_INITIALIZATION_FAILED;
+    VkResult r = next(phys, surface, caps);
+    if (r == VK_SUCCESS) flexible_extent(caps);
+    return r;
+}
+
+static VKAPI_ATTR VkResult VKAPI_CALL bh_GetPhysicalDeviceSurfaceCapabilities2KHR(
+    VkPhysicalDevice phys, const VkPhysicalDeviceSurfaceInfo2KHR *info, VkSurfaceCapabilities2KHR *caps) {
+    pthread_mutex_lock(&g_lock);
+    instance_entry *ie = find_instance(phys);
+    PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR next = ie ? ie->surface_caps2 : NULL;
+    pthread_mutex_unlock(&g_lock);
+    if (!next) return VK_ERROR_INITIALIZATION_FAILED;
+    VkResult r = next(phys, info, caps);
+    if (r == VK_SUCCESS) flexible_extent(&caps->surfaceCapabilities);
+    return r;
+}
+
 /* ── Swapchain ──────────────────────────────────────────────────────────── */
 
 static void note(const char *fmt, ...) {
@@ -800,7 +847,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
     pthread_mutex_unlock(&g_lock);
     if (!e || !e->f.CreateSwapchainKHR) return VK_ERROR_INITIALIZATION_FAILED;
 
-    VkExtent2D target = target_size(ci->imageExtent);
+    int want = upscale_wanted();
+    VkExtent2D target = {0, 0};
     upscaler *u = NULL;
     int retired = 0; /* a create succeeded, so ci->oldSwapchain is retired now */
     VkResult r;
@@ -811,14 +859,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
     g_stat.sharp = sharpness();
     pthread_mutex_unlock(&g_lock);
 
-    if (target.width && g_upscale_disabled) {
-        target.width = target.height = 0;
+    if (want && g_upscale_disabled) {
         pthread_mutex_lock(&g_lock);
-        snprintf(g_stat.note, sizeof g_stat.note,
-                 "upscale off: the driver keeps rejecting the larger swapchain (out of date)");
+        snprintf(g_stat.note, sizeof g_stat.note, "upscale off: the game keeps having to recreate its swapchain");
         pthread_mutex_unlock(&g_lock);
-    }
-    if (target.width) {
+    } else if (want) {
         VkSurfaceCapabilitiesKHR caps;
         memset(&caps, 0, sizeof caps);
         int ok = 1;
@@ -831,10 +876,21 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         } else if (ci->imageArrayLayers != 1) {
             note("upscale off: %u array layers", ci->imageArrayLayers);
             ok = 0;
-        } else if (!e->inst.surface_caps || e->inst.surface_caps(e->phys, ci->surface, &caps) != VK_SUCCESS ||
+        } else if (e->inst.surface_caps(e->phys, ci->surface, &caps) != VK_SUCCESS ||
                    !(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
             note("upscale off: the swapchain can't be a copy target (usage 0x%x)", caps.supportedUsageFlags);
             ok = 0;
+        } else if (caps.currentExtent.width == 0xFFFFFFFFu || !caps.currentExtent.width) {
+            note("upscale off: the window has no fixed size");
+            ok = 0;
+        } else if (caps.currentExtent.width < ci->imageExtent.width * 21 / 20 &&
+                   caps.currentExtent.height < ci->imageExtent.height * 21 / 20) {
+            note("no upscale: the game draws at the window size %ux%u; choose a lower resolution in the "
+                 "game's own video options",
+                 caps.currentExtent.width, caps.currentExtent.height);
+            ok = 0;
+        } else {
+            target = caps.currentExtent;
         }
         if (ok) {
             VkSwapchainCreateInfoKHR real = *ci;
@@ -842,8 +898,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
             real.imageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
             r = e->f.CreateSwapchainKHR(device, &real, alloc, out);
             if (r != VK_SUCCESS) {
-                note("upscale off: driver refused a %ux%u swapchain (%d, surface max %ux%u)", target.width,
-                     target.height, (int)r, caps.maxImageExtent.width, caps.maxImageExtent.height);
+                note("upscale off: driver refused a %ux%u swapchain (%d)", target.width, target.height, (int)r);
             } else {
                 retired = 1;
                 u = (upscaler *)calloc(1, sizeof *u);
@@ -871,7 +926,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         pthread_mutex_lock(&g_lock);
         int slot = -1;
         for (int i = 0; i < MAX_SWAPCHAINS; i++) if (!g_swapchains[i]) { slot = i; break; }
-        if (slot >= 0) g_swapchains[slot] = u;
+        if (slot >= 0) {
+            g_swapchains[slot] = u;
+            count_creation();
+        }
         pthread_mutex_unlock(&g_lock);
         if (slot < 0) {
             note("upscale off: too many swapchains");
@@ -1087,6 +1145,16 @@ EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL bh_GetInstanceProcAddr(VkInstanc
     if (!strcmp(name, "vkCreateInstance")) return (PFN_vkVoidFunction)bh_CreateInstance;
     if (!strcmp(name, "vkDestroyInstance")) return (PFN_vkVoidFunction)bh_DestroyInstance;
     if (!strcmp(name, "vkCreateDevice")) return (PFN_vkVoidFunction)bh_CreateDevice;
+    if (!strcmp(name, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"))
+        return (PFN_vkVoidFunction)bh_GetPhysicalDeviceSurfaceCapabilitiesKHR;
+    if (!strcmp(name, "vkGetPhysicalDeviceSurfaceCapabilities2KHR")) {
+        /* Only where the next layer / driver has it. */
+        pthread_mutex_lock(&g_lock);
+        instance_entry *ie = instance ? find_instance(instance) : NULL;
+        int have = ie && ie->surface_caps2;
+        pthread_mutex_unlock(&g_lock);
+        return have ? (PFN_vkVoidFunction)bh_GetPhysicalDeviceSurfaceCapabilities2KHR : NULL;
+    }
     PFN_vkVoidFunction hook = device_hook(name);
     if (hook) return hook;
     pthread_mutex_lock(&g_lock);

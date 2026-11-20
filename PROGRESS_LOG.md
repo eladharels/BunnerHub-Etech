@@ -4,6 +4,12 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — Upscaler: upscale within the window, not past it (2026-11-20)
+- Device test (GTA IV): `FSR 1: 1280x720 → 1920x1080` and `960x540 → 1920x1080` both showed a zoomed-in top-left part. GameHub's renderer shows a window's frame at the window size and crops anything larger, so a swapchain bigger than the window can't reach the screen.
+- `bh_vklayer.c`: with `BH_VKLAYER_UPSCALE=1` the layer hooks `vkGetPhysicalDeviceSurfaceCapabilities(2)KHR` and reports the surface as freely sizable (currentExtent 0xFFFFFFFF, min 1x1, max the window), so DXVK sizes its swapchain to the game's back buffer (its own resolution setting) instead of scaling to the window itself. When the game's swapchain is smaller than the window, the real swapchain is the window size and FSR 1 upscales into it (valid per the spec now; no out-of-date from Mesa). If the game draws at the window size, the status says to pick a lower resolution in the game. New guard: 8 upscaled swapchains within 10 s → upscaling off (a recreate loop, e.g. if Wine reports the size mismatch). `BH_VKLAYER_OUT` dropped.
+- App: mode renamed *On, FSR upscaling*; sets `BH_VKLAYER_UPSCALE=1`; the tab explains the setup (GameHub resolution = screen, game's own resolution lower); row "Upscaled to (Wine screen)".
+- Checked locally with a test program (800x600 window, 400x300 swapchain): caps reported flexible, `FSR 1: 400x300 → 800x600`, the whole picture fills the window (not cropped), no layer validation errors. Unknown on the device: whether GameHub's Wine passes the flexible size through to DXVK (Wine 9+ can override it with the window size).
+
 ### [cleanup] — In-game sidebar: Wine FSR and root-only toggles removed (2026-11-20)
 - Elad asked to remove in-game options we won't use; chose the Wine FSR section and the root-only toggles (kept: Konkr HUD, RTS controls, Task manager, AI Frame Generation, Dual Battery Mode).
 - FSR tab: the Wine fullscreen-hack FSR (on/off, strength, render-size mode, Wine support check, DXVK render-size reader) is gone; his Wine build reported "no FSR", and the BunnerHub upscaler works with any Wine. `BhFsr` is now only the launch hook for the layer; `BhWineLog` no longer captures `fsr-*.log`. The tab is **Resolution now** (game renders at: the layer's swapchain report or the Wine screen size; reaches the screen at: FSR output or plain stretch; display) and the **BunnerHub upscaler** card.
