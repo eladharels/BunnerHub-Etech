@@ -148,6 +148,18 @@ public final class BhFsr {
 
     /** BhWineLog.env: adjusts the environment of every Wine launcher. */
     public static String[] env(String[] env) {
+        env = fsrEnv(env);
+        try {
+            Context ctx = currentApp();
+            String id = BhPlayTime.currentGameId();
+            if (ctx != null && env != null && BhVkLayer.enabled(ctx, id)) env = BhVkLayer.apply(ctx, env);
+        } catch (Throwable t) {
+            Log.w(TAG, "layer hook failed", t);
+        }
+        return env;
+    }
+
+    private static String[] fsrEnv(String[] env) {
         try {
             Context ctx = currentApp();
             if (ctx == null || env == null) return env;

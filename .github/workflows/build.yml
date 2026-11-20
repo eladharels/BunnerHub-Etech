@@ -1107,6 +1107,20 @@ jobs:
             -o apktool_out/assets/bunnerhub-etech/bh_winctl.exe tools/bh_winctl.c -luser32
           ls -la apktool_out/assets/bunnerhub-etech/bh_winctl.exe
 
+      - name: Build libbh_vklayer.so (BunnerHub Vulkan layer)
+        run: |
+          # An implicit Vulkan layer loaded into the game's Wine through
+          # ~/.config/vulkan/implicit_layer.d when BH_VKLAYER=1 (per game, FSR tab).
+          # See tools/vklayer/bh_vklayer.c and extension/BhVkLayer.java.
+          CC="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          "$CC" -shared -fPIC -O2 -fvisibility=hidden -Wall -Werror -Wl,-z,defs \
+            -o apktool_out/assets/bunnerhub-etech/libbh_vklayer.so tools/vklayer/bh_vklayer.c -llog
+          "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+            apktool_out/assets/bunnerhub-etech/libbh_vklayer.so
+          "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only \
+            apktool_out/assets/bunnerhub-etech/libbh_vklayer.so | grep -E 'vkNegotiateLoaderLayerInterfaceVersion|bh_GetInstanceProcAddr'
+          ls -la apktool_out/assets/bunnerhub-etech/libbh_vklayer.so
+
       - name: Rebuild APK
         run: |
           java -jar $HOME/bin/apktool.jar b apktool_out -o rebuilt-unsigned.apk

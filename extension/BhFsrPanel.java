@@ -46,7 +46,9 @@ public final class BhFsrPanel {
     private static String gameId;
     private static TextView gameLine, wineLine, sessionLine, pendingLine;
     private static TextView renderValue, outputValue, displayValue, factorValue, hintLine;
-    private static Button toggle, strengthLabel, modeButton;
+    private static Button toggle, strengthLabel, modeButton, layerToggle;
+    private static TextView layerLine;
+    private static volatile String layerStatus;
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService io = Executors.newSingleThreadExecutor();
     private static volatile int[] render;
@@ -61,6 +63,8 @@ public final class BhFsrPanel {
                 io.execute(() -> {
                     try {
                         render = BhFsr.renderSize();
+                        Context c = ctx;
+                        if (c != null) layerStatus = BhVkLayer.statusLine(c, gameId);
                     } finally {
                         reading.set(false);
                     }
@@ -159,6 +163,29 @@ public final class BhFsrPanel {
         modeButton.setOnClickListener(v -> cycleMode());
         settings.addView(modeButton);
 
+        // ── BunnerHub Vulkan layer (test) ──
+        if (BhVkLayer.available(ctx)) {
+            LinearLayout layer = card();
+            root.addView(layer, margins(0, 12, 0, 0));
+            TextView layerTitle = text(14, WHITE, true);
+            layerTitle.setText("BunnerHub upscaler (test)");
+            layer.addView(layerTitle);
+            TextView layerHelp = text(11, GREY, false);
+            layerHelp.setText("Our own Vulkan layer, the base for upscaling that works with any Wine. "
+                    + "This test version changes nothing in the picture; it only checks that it "
+                    + "can load into the game and reports what it sees. Restart the game after switching.");
+            layer.addView(layerHelp, margins(0, 4, 0, 0));
+            layerToggle = button("", false);
+            layerToggle.setOnClickListener(v -> {
+                if (gameId == null) return;
+                BhVkLayer.setEnabled(ctx, gameId, !BhVkLayer.enabled(ctx, gameId));
+                refreshSettings();
+            });
+            layer.addView(layerToggle, margins(0, 10, 0, 0));
+            layerLine = text(12, GREY, false);
+            layer.addView(layerLine, margins(0, 8, 0, 0));
+        }
+
         TextView help = text(11, GREY, false);
         help.setText("How it works: the game draws a smaller picture and Wine's FSR 1 upscales and "
                 + "sharpens it to the Wine screen size (the resolution set in the game's GameHub "
@@ -193,7 +220,9 @@ public final class BhFsrPanel {
         ctx = null;
         gameLine = wineLine = sessionLine = pendingLine = null;
         renderValue = outputValue = displayValue = factorValue = hintLine = null;
-        toggle = strengthLabel = modeButton = null;
+        toggle = strengthLabel = modeButton = layerToggle = null;
+        layerLine = null;
+        layerStatus = null;
     }
 
     // ── Actions ──────────────────────────────────────────────────────────────
@@ -223,6 +252,7 @@ public final class BhFsrPanel {
         boolean modeOk = sup == null || sup.state != BhFsr.Support.YES || sup.mode;
 
         toggle.setText(on ? "FSR: ON" : "FSR: OFF");
+        refreshLayer();
         strengthLabel.setText(String.valueOf(strength));
         modeButton.setText(mode.label + (modeOk ? "" : " (not in this Wine)"));
         modeButton.setEnabled(gameId != null && modeOk);
@@ -259,7 +289,23 @@ public final class BhFsrPanel {
         }
     }
 
+    private static void refreshLayer() {
+        if (layerToggle == null || ctx == null) return;
+        boolean on = BhVkLayer.enabled(ctx, gameId);
+        layerToggle.setText(on ? "Layer test: ON" : "Layer test: OFF");
+        boolean running = gameId != null && gameId.equals(BhVkLayer.appliedGame);
+        String st = layerStatus;
+        if (running && st != null) {
+            layerLine.setTextColor(st.startsWith("Layer: loaded") ? GREEN : AMBER);
+            layerLine.setText(on ? st : st + "\nRestart the game to switch it off.");
+        } else {
+            layerLine.setTextColor(on ? AMBER : GREY);
+            layerLine.setText(on ? "Restart the game to load the layer." : "");
+        }
+    }
+
     private static void refreshSizes() {
+        refreshLayer();
         if (renderValue == null || ctx == null) return;
         int[] out = wineScreen();
         int[] disp = display();

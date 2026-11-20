@@ -813,6 +813,8 @@ Settings (per game, applied the next time the game starts): **FSR on/off**, **FS
 
 Limits: Vulkan presentation only, so DirectX 9–12 games through DXVK / VKD3D-Proton; OpenGL games aren't upscaled. The render size comes from DXVK, so DX12 games may show it as unknown.
 
+**BunnerHub upscaler (test)**: the start of our own upscaler, a Vulkan layer (`tools/vklayer/bh_vklayer.c`, built by CI into the APK) that will work with any Wine build. Turn on **Layer test** in the FSR tab and restart the game. This first version changes nothing on screen: it only proves it loads into the game and shows `Layer: loaded · swapchain WxH · N fps`. The app installs the library to `files/usr/lib/libbh_vklayer.so` and its manifest to `~/.config/vulkan/implicit_layer.d/bh_vklayer.json` (enabled only when the game's launch sets `BH_VKLAYER=1`).
+
 ---
 
 ### PC Game Settings: Offline Mode
