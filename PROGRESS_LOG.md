@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Upscaler works full screen; Native Rendering+ check, "Upscale to" (2026-11-21)
+- Device log (`upscaler.log`): the DirectRendering surface was scaled (0.547 x 0.667) but the picture stayed cropped: GTA IV was going through GameHub's X server (GameScopeVK's DRI3/Present path), which copies a presented frame into the window and crops it. With Performance → **Native Rendering+ → Force Enable** (frames go to DirectRendering), it works: `FSR 1: 1280x720 → 2340x1080` full screen, sharp, ~110–119 FPS ("DXVK+" in the HUD). Elad: "Looking better".
+- `BhVkSurfaceScale` registers a `DirectRenderingStateListener` (Proxy, via `DirectRendering.Companion.a`) when the game starts, so the FSR tab shows "Native Rendering+: on · screen fit: scaled …" or warns that it is off and how to turn it on.
+- New per-game **Upscale to**: Display (default) / 1920x1080 / 1600x900 / 1280x720 → `BH_VKLAYER_OUT`.
+
 ### [fix] — Upscaler: full-screen FSR output by scaling GameHub's surface (2026-11-20)
 - Device test 2 (GTA IV, 800x600 in game, 720p in GameHub): the layer reported `FSR 1: 800x600 → 2340x1080` but the picture was still zoomed in, so the surface scale didn't take effect. Diagnostics added: `BhVkSurfaceScale` records what happened ("Screen fit: scaled 0.342 x 0.556", "surface not found", "failed: …") in the FSR tab and `/sdcard/BunnerHub-Etech/logs/upscaler.log` (with pid and stack trace); the watcher also starts from `BhPlayTime.onGameResume` (WineActivity, `:wine` process, where DirectRendering lives); the scale is re-applied every 2 s while scaled in case GameHub resets it.
 - Device test of the within-window version: with GTA IV set to 720p in-game and 1080p in GameHub, the window became 1280x720 (Wine resizes the window to a fullscreen game's mode), so there was nothing to upscale ("no upscale: the game draws at the window size 1280x720").

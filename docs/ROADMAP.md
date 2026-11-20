@@ -66,7 +66,7 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 ## 7. FSR upscaling ◐
 
-**2026-11-20:** the Wine FSR option (v1 below) was removed from the FSR tab; the tab is now the BunnerHub upscaler (own Vulkan layer, below).
+**2026-11-20:** the Wine FSR option (v1 below) was removed from the FSR tab; the tab is now the BunnerHub upscaler (own Vulkan layer, below). **2026-11-21: the upscaler works on the device** (GTA IV, 1280x720 → 2340x1080 with FSR 1, full screen; needs Native Rendering+ → Force Enable). Next: compare FPS/quality at lower resolutions and "Upscale to" targets; maybe frame generation (FidelityFX) later.
 
 **Status (2026-11-17):** v1 implemented, not yet device-tested. Option 1 from the upscaling discussion: Wine's own FSR 1 (`WINE_FULLSCREEN_FSR`, Proton / GE-Proton fullscreen hack) switched per game from a new **FSR** sidebar tab. `extension/BhFsr.java` (launch env + Wine support check + DXVK render-size reader), `extension/BhFsrPanel.java` (UI), `BhWineLog.env/command` (hook), sidebar tab via `BhFsrFragment.smali` + `BhFsrClickListener.smali`, `WineActivityDrawerContent` (`U()` branch, click wiring), icon `sidebar_fsr.xml`.
 

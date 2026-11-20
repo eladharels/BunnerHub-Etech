@@ -41,6 +41,12 @@ final class BhVkSurfaceScale {
     private static long lastApplyMs;
     /** What happened last, for the FSR tab ("Screen fit: …"). */
     static volatile String result = "not started";
+    /**
+     * Whether GameHub's Native Rendering+ (DirectRendering) is on: null until it reports.
+     * Without it frames go through GameHub's X server, which crops the larger frame.
+     */
+    static volatile Boolean direct;
+    private static boolean listening;
 
     private BhVkSurfaceScale() {}
 
@@ -48,6 +54,7 @@ final class BhVkSurfaceScale {
     static synchronized void watch(Context ctx) {
         app = ctx.getApplicationContext();
         if (!running) note("watching (process " + android.os.Process.myPid() + ")", null);
+        listenForDirectRendering();
         if (handler == null) {
             HandlerThread t = new HandlerThread("BhVkSurfaceScale");
             t.start();
@@ -56,6 +63,36 @@ final class BhVkSurfaceScale {
         if (!running) {
             running = true;
             handler.post(BhVkSurfaceScale::tick);
+        }
+    }
+
+    /** DirectRendering.Companion.a(DirectRenderingStateListener): told when Native Rendering+ turns on/off. */
+    private static void listenForDirectRendering() {
+        if (listening) return;
+        try {
+            Class<?> dr = Class.forName("com.winemu.core.DirectRendering");
+            Class<?> type = Class.forName("com.winemu.core.DirectRenderingStateListener");
+            Object listener = java.lang.reflect.Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type},
+                    (proxy, method, args) -> {
+                        if (args != null && args.length == 1 && args[0] instanceof Boolean) {
+                            direct = (Boolean) args[0];
+                            Log.i(TAG, "Native Rendering+ " + (direct ? "on" : "off"));
+                            return null;
+                        }
+                        switch (method.getName()) {
+                            case "hashCode": return System.identityHashCode(proxy);
+                            case "equals": return proxy == args[0];
+                            case "toString": return "BhVkSurfaceScale.listener";
+                            default: return null;
+                        }
+                    });
+            Field companion = dr.getDeclaredField("e");
+            companion.setAccessible(true);
+            Object c = companion.get(null);
+            c.getClass().getMethod("a", type).invoke(c, listener);
+            listening = true;
+        } catch (Throwable t) {
+            Log.w(TAG, "cannot listen for Native Rendering+", t);
         }
     }
 

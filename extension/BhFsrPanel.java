@@ -47,7 +47,7 @@ public final class BhFsrPanel {
     private static Context ctx;
     private static String gameId;
     private static TextView gameLine, renderValue, outputValue, displayValue, layerLine;
-    private static Button layerToggle, layerSharp;
+    private static Button layerToggle, layerSharp, layerTarget;
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService io = Executors.newSingleThreadExecutor();
     private static volatile Map<String, String> status = new HashMap<>();
@@ -121,8 +121,9 @@ public final class BhFsrPanel {
         TextView layerHelp = text(11, GREY, false);
         layerHelp.setText(have
                 ? "\"FSR to display\" upscales each frame from the game's resolution (set in its GameHub "
-                + "settings) to your display with AMD FSR 1, instead of a plain stretch. For more FPS, "
-                + "lower the GameHub resolution. Works with any Wine build. Restart the game after changing."
+                + "settings; set the same in the game's own options) with AMD FSR 1, instead of a plain "
+                + "stretch. Needs Performance → Native Rendering+ → Force Enable. For more FPS, lower the "
+                + "GameHub resolution. Restart the game after changing."
                 : "This build doesn't include the upscaler.");
         layer.addView(layerHelp, margins(0, 4, 0, 0));
         layerLine = text(12, GREY, false);
@@ -134,6 +135,16 @@ public final class BhFsrPanel {
                 refresh();
             });
             layer.addView(layerToggle, margins(0, 10, 0, 0));
+            TextView targetT = text(12, GREY, false);
+            targetT.setText("Upscale to");
+            layer.addView(targetT, margins(0, 12, 0, 4));
+            layerTarget = button("", false);
+            layerTarget.setOnClickListener(v -> {
+                if (gameId == null) return;
+                BhVkLayer.setTarget(ctx, gameId, BhVkLayer.target(ctx, gameId) + 1);
+                refresh();
+            });
+            layer.addView(layerTarget);
             TextView sharpT = text(12, GREY, false);
             sharpT.setText("Sharpness");
             layer.addView(sharpT, margins(0, 12, 0, 4));
@@ -173,7 +184,7 @@ public final class BhFsrPanel {
         ui.removeCallbacks(refresher);
         ctx = null;
         gameLine = renderValue = outputValue = displayValue = layerLine = null;
-        layerToggle = layerSharp = null;
+        layerToggle = layerSharp = layerTarget = null;
         status = new HashMap<>();
         statusText = null;
     }
@@ -207,9 +218,12 @@ public final class BhFsrPanel {
         int sharp = BhVkLayer.sharp(ctx, gameId);
         layerToggle.setText("Upscaler: " + BhVkLayer.MODE_LABELS[mode]);
         layerSharp.setText((sharp + 1) + " / " + BhVkLayer.SHARP_LEVELS);
+        int target = BhVkLayer.target(ctx, gameId);
+        layerTarget.setText(BhVkLayer.targetLabel(ctx, target));
         boolean running = gameId != null && gameId.equals(BhVkLayer.appliedGame);
         boolean pending = running
-                ? (mode != BhVkLayer.appliedMode || (mode == BhVkLayer.UPSCALE && sharp != BhVkLayer.appliedSharp))
+                ? (mode != BhVkLayer.appliedMode || (mode == BhVkLayer.UPSCALE
+                        && (sharp != BhVkLayer.appliedSharp || target != BhVkLayer.appliedTarget)))
                 : mode != BhVkLayer.OFF;
         String st = statusText;
         if (running && st != null) {

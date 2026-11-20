@@ -44,13 +44,15 @@ public final class BhVkLayer {
 
     /** Game id the last launch switched the layer on for (this process), and what it got. */
     static volatile String appliedGame;
-    static volatile int appliedMode, appliedSharp;
+    static volatile int appliedMode, appliedSharp, appliedTarget;
 
     static final int OFF = 0, REPORT = 1, UPSCALE = 2;
     static final String[] MODE_LABELS = {"Off", "On, report only", "On, FSR to display"};
     /** RCAS sharpness in stops (0 = sharpest), for levels 1..5 shown as "5/5 … 1/5". */
     private static final float[] SHARP_STOPS = {2.0f, 1.0f, 0.5f, 0.25f, 0.0f};
     static final int SHARP_LEVELS = SHARP_STOPS.length, DEFAULT_SHARP = 3;
+    /** "Upscale to" choices: 0 = the display's own size, then fixed sizes. */
+    static final int[][] TARGETS = {null, {1920, 1080}, {1600, 900}, {1280, 720}};
 
     private BhVkLayer() {}
 
@@ -76,6 +78,27 @@ public final class BhVkLayer {
         return mode(ctx, gameId) != OFF;
     }
 
+    static int target(Context ctx, String gameId) {
+        int v = gameId == null ? 0 : prefs(ctx).getInt("layer_out_" + gameId, 0);
+        return Math.max(0, Math.min(TARGETS.length - 1, v));
+    }
+
+    static void setTarget(Context ctx, String gameId, int v) {
+        if (gameId != null) prefs(ctx).edit().putInt("layer_out_" + gameId, ((v % TARGETS.length) + TARGETS.length)
+                % TARGETS.length).apply();
+    }
+
+    /** The output size for a target choice, as "WxH", or null. */
+    static String targetSize(Context ctx, int choice) {
+        int[] t = TARGETS[Math.max(0, Math.min(TARGETS.length - 1, choice))];
+        return t == null ? displaySize(ctx) : t[0] + "x" + t[1];
+    }
+
+    static String targetLabel(Context ctx, int choice) {
+        String size = targetSize(ctx, choice);
+        return choice == 0 ? "Display" + (size != null ? " (" + size + ")" : "") : size;
+    }
+
     /** Sharpness level 0..SHARP_LEVELS-1 (higher = sharper). */
     static int sharp(Context ctx, String gameId) {
         int v = gameId == null ? DEFAULT_SHARP : prefs(ctx).getInt("layer_sharp_" + gameId, DEFAULT_SHARP);
@@ -88,7 +111,7 @@ public final class BhVkLayer {
     }
 
     /** The display's full size in landscape, as "WxH", or null. */
-    private static String displaySize(Context ctx) {
+    static String displaySize(Context ctx) {
         try {
             android.view.WindowManager wm =
                     (android.view.WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
@@ -145,7 +168,8 @@ public final class BhVkLayer {
             String id = BhPlayTime.currentGameId();
             int mode = mode(ctx, id);
             int sharp = sharp(ctx, id);
-            String display = mode == UPSCALE ? displaySize(ctx) : null;
+            int target = target(ctx, id);
+            String display = mode == UPSCALE ? targetSize(ctx, target) : null;
             boolean upscale = display != null;
             for (String k : new String[] {"BH_VKLAYER", "BH_VKLAYER_STATUS", "BH_VKLAYER_OUT", "BH_VKLAYER_SHARP"})
                 remove(out, k);
@@ -161,6 +185,7 @@ public final class BhVkLayer {
             appliedGame = id;
             appliedMode = upscale ? UPSCALE : REPORT;
             appliedSharp = sharp;
+            appliedTarget = target;
             Log.i(TAG, "layer on for " + id + (upscale ? ", FSR to " + display + ", sharpness " + SHARP_STOPS[sharp]
                     : ", report only"));
             return out.toArray(new String[0]);
