@@ -38,12 +38,16 @@ final class BhVkSurfaceScale {
     private static boolean running;
     private static float curX = 1f, curY = 1f;
     private static String lastError;
+    private static long lastApplyMs;
+    /** What happened last, for the FSR tab ("Screen fit: …"). */
+    static volatile String result = "not started";
 
     private BhVkSurfaceScale() {}
 
     /** A game launch with "FSR to display": follow the layer's reports. */
     static synchronized void watch(Context ctx) {
         app = ctx.getApplicationContext();
+        if (!running) note("watching (process " + android.os.Process.myPid() + ")", null);
         if (handler == null) {
             HandlerThread t = new HandlerThread("BhVkSurfaceScale");
             t.start();
@@ -99,10 +103,20 @@ final class BhVkSurfaceScale {
 
     /** Sets the DirectRendering surface's scale if it changed. Runs on the handler thread. */
     private static void apply(float sx, float sy) {
-        if (Math.abs(sx - curX) < 1e-4f && Math.abs(sy - curY) < 1e-4f) return;
+        boolean same = Math.abs(sx - curX) < 1e-4f && Math.abs(sy - curY) < 1e-4f;
+        long now = android.os.SystemClock.elapsedRealtime();
+        // Re-apply now and then while scaled, in case GameHub resets the surface.
+        if (same && (sx == 1f && sy == 1f || now - lastApplyMs < 2000)) return;
         try {
             SurfaceControl sc = surface();
-            if (sc == null) return;
+            if (sc == null) {
+                note("DirectRendering surface not found", null);
+                return;
+            }
+            if (!sc.isValid()) {
+                note("DirectRendering surface not valid yet", null);
+                return;
+            }
             SurfaceControl.Transaction t = new SurfaceControl.Transaction();
             Method set;
             try {
@@ -115,14 +129,40 @@ final class BhVkSurfaceScale {
                 set.invoke(t, sc, sx, 0f, 0f, sy);
             }
             t.apply();
+            lastApplyMs = now;
+            if (!same) note(String.format(java.util.Locale.US, "scaled %.3f x %.3f (%s)", sx, sy, sc), null);
             curX = sx;
             curY = sy;
-            lastError = null;
-            Log.i(TAG, "DirectRendering surface scale " + sx + " x " + sy);
+            result = sx == 1f && sy == 1f ? "not scaled" : String.format(java.util.Locale.US,
+                    "scaled %.3f x %.3f", sx, sy);
         } catch (Throwable e) {
-            String msg = String.valueOf(e);
-            if (!msg.equals(lastError)) Log.w(TAG, "cannot scale the DirectRendering surface", e);
-            lastError = msg;
+            Throwable c = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null
+                    ? e.getCause() : e;
+            note("failed: " + c, c);
+        }
+    }
+
+    /** Records what happened (FSR tab line, logcat, and logs/upscaler.log once per new message). */
+    private static void note(String msg, Throwable t) {
+        if (msg.startsWith("scaled") || msg.startsWith("failed")) result = msg.startsWith("scaled")
+                ? msg.substring(0, msg.indexOf(" (") > 0 ? msg.indexOf(" (") : msg.length()) : msg;
+        else result = msg;
+        if (msg.equals(lastError)) return;
+        lastError = msg;
+        if (t != null) Log.w(TAG, msg, t);
+        else Log.i(TAG, msg);
+        try {
+            java.io.File dir = new java.io.File(android.os.Environment.getExternalStorageDirectory(),
+                    "BunnerHub-Etech/logs");
+            dir.mkdirs();
+            java.io.StringWriter sw = new java.io.StringWriter();
+            if (t != null) t.printStackTrace(new java.io.PrintWriter(sw));
+            String line = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                    .format(new java.util.Date()) + " [" + android.os.Process.myPid() + "] " + msg + "\n" + sw;
+            try (java.io.FileOutputStream o = new java.io.FileOutputStream(new java.io.File(dir, "upscaler.log"), true)) {
+                o.write(line.getBytes("UTF-8"));
+            }
+        } catch (Throwable ignored) {
         }
     }
 

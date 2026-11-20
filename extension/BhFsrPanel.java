@@ -215,6 +215,7 @@ public final class BhFsrPanel {
         if (running && st != null) {
             boolean ok = st.startsWith("Layer: loaded") && !st.contains("upscale off");
             layerLine.setTextColor(ok ? GREEN : AMBER);
+            if (mode == BhVkLayer.UPSCALE) st += "\nScreen fit: " + BhVkSurfaceScale.result;
             layerLine.setText(pending ? st + "\nRestart the game to apply your changes." : st);
         } else {
             layerLine.setTextColor(pending ? AMBER : GREY);
