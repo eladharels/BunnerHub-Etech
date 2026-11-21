@@ -101,7 +101,7 @@ final class BhUpscalerLog {
             }
             double fps = parseDouble(st.get("fps"), -1);
             long age = now / 1000 - parseLong(st.get("time"), 0);
-            if (fps >= 0 && age < 5) minFps = Math.min(minFps, fps);
+            if (fps > 0 && age < 5) minFps = Math.min(minFps, fps); // 0 = not drawn yet
             int gpu = readGpu();
             if (gpu >= 0) {
                 gpuSum += gpu;
@@ -125,8 +125,9 @@ final class BhUpscalerLog {
             b.append(time).append("  ");
             if (frames >= framesAtStart && framesAtStart >= 0 && now > msAtStart && age < 5) {
                 double avg = (frames - framesAtStart) * 1000.0 / (now - msAtStart);
+                // min is sampled every 2 s, so a short stall can pull the average under it.
                 b.append(String.format(Locale.US, "fps avg %5.1f  min %5.1f", avg,
-                        minFps == Double.MAX_VALUE ? avg : minFps));
+                        minFps == Double.MAX_VALUE ? avg : Math.min(minFps, avg)));
             } else {
                 b.append("fps   (game not drawing)     ");
             }
@@ -137,7 +138,7 @@ final class BhUpscalerLog {
                     "cpu-thermal", "cpucluster", "cpu"}, null)));
             b.append(" gpu ").append(temp(readZoneTemp(new String[]{"gpuss-0", "gpuss", "gpu-thermal", "gpu"},
                     "/sys/class/kgsl/kgsl-3d0/temp")));
-            b.append(" bat ").append(temp(readBatteryTemp()));
+            b.append(" bat ").append(temp(readBatteryTemp(ctx)));
             if (isCharging(ctx)) b.append("  charging");
             b.append('\n');
             write(b.toString());
@@ -249,7 +250,14 @@ final class BhUpscalerLog {
         }
     }
 
-    private static int readBatteryTemp() {
+    /** Battery temperature from Android's battery broadcast (tenths of °C), else sysfs. */
+    private static int readBatteryTemp(Context ctx) {
+        try {
+            Intent i = ctx.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            int t = i == null ? -1 : i.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+            if (t > 0) return t / 10;
+        } catch (Throwable ignored) {
+        }
         String v = line("/sys/class/power_supply/battery/temp");
         try {
             return v == null ? 0 : Integer.parseInt(v.trim()) / 10;

@@ -642,6 +642,7 @@ static VkExtent2D target_size(VkExtent2D in) {
     const char *s = getenv("BH_VKLAYER_OUT");
     unsigned w = 0, h = 0;
     if (!s || sscanf(s, "%ux%u", &w, &h) != 2 || !w || !h || !in.width || !in.height) return none;
+    if (in.width < 320 || in.height < 200) return none; /* a splash / helper window (e.g. 1x1), not the game */
     if (w > in.width * 4) w = in.width * 4;
     if (h > in.height * 4) h = in.height * 4;
     if (w < in.width || h < in.height) return none;            /* would shrink an axis */
@@ -834,7 +835,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         pthread_mutex_lock(&g_lock);
         snprintf(g_stat.note, sizeof g_stat.note, "upscale off: the game keeps having to recreate its swapchain");
         pthread_mutex_unlock(&g_lock);
-    } else if (!target.width && getenv("BH_VKLAYER_OUT")) {
+    } else if (!target.width && getenv("BH_VKLAYER_OUT") && ci->imageExtent.width >= 320 &&
+               ci->imageExtent.height >= 200) {
         note("no upscale: the game's %ux%u is already about the display size", ci->imageExtent.width,
              ci->imageExtent.height);
     }

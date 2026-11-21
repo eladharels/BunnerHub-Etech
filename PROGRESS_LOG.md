@@ -4,6 +4,10 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — Upscaler: first test-log results; small fixes (2026-11-21)
+- Elad's `upscaler-sessions.log` (GTA IV, Native Rendering+ on, 60 FPS limit): in gameplay 848x480 → FSR 1280x720 ~53 FPS (GPU ~77%, 6–8 W), 960x540 → FSR 1280x720 ~57 (8.5–11.5 W), 1280x720 without FSR ~55 (7.5–10.5 W); CPU up to 79°C. Lowering the resolution barely changes FPS: GTA IV is CPU-bound here, so for it FSR is for image quality (1280x720 → Display), not speed.
+- Fixes: the layer skips swapchains under 320x200 (GTA IV makes a 1x1 one at start, which was "upscaled" to 4x4); battery temperature from `ACTION_BATTERY_CHANGED` (sysfs read "?"); min FPS ignores 0 (not drawn yet) and is capped at the average.
+
 ### [feat] — Upscaler test log (2026-11-21)
 - Elad ran tests and asked for a log to send. `extension/BhUpscalerLog.java` (:wine process, started/stopped with `BhPlayTime.onGameResume` / `onGamePause` when the layer is on for the game): samples every 2 s, writes every 10 s to `/sdcard/BunnerHub-Etech/logs/upscaler-sessions.log` (rotated to `.old.log` at 1 MB). Header on each settings change: game size, `→ output FSR 1` with Upscale to and sharpness and Native Rendering+, or "no FSR (report only)" / "FSR not running: <note>". Lines: fps avg (frame counter delta from the layer's status) and min (per-second fps samples), GPU % (kgsl gpubusy), power (BatteryManager current × voltage), CPU / GPU / battery temperature (thermal zones, as the detailed HUD), charging.
 
