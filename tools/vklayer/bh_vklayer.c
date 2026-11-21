@@ -256,6 +256,64 @@ typedef struct {
 
 static upscaler *g_swapchains[MAX_SWAPCHAINS];
 
+/* Every swapchain the game made (upscaled or not), so the status file can describe the one that
+   is actually presenting: games can keep two (e.g. a launcher or helper window next to the game). */
+#define MAX_INFOS 32
+typedef struct {
+    VkSwapchainKHR handle;
+    uint32_t width, height, out_w, out_h, images;
+    int format, present_mode, upscale;
+    char note[160];
+} swapchain_info;
+static swapchain_info g_infos[MAX_INFOS];
+static VkSwapchainKHR g_last_presented;
+
+static void remember_info(VkSwapchainKHR h) { /* from g_stat, with g_lock held */
+    int slot = -1;
+    for (int i = 0; i < MAX_INFOS; i++) {
+        if (g_infos[i].handle == h) { slot = i; break; }
+        if (slot < 0 && !g_infos[i].handle) slot = i;
+    }
+    if (slot < 0) slot = 0;
+    swapchain_info *in = &g_infos[slot];
+    in->handle = h;
+    in->width = g_stat.width;
+    in->height = g_stat.height;
+    in->out_w = g_stat.out_w;
+    in->out_h = g_stat.out_h;
+    in->images = g_stat.images;
+    in->format = g_stat.format;
+    in->present_mode = g_stat.present_mode;
+    in->upscale = g_stat.upscale;
+    snprintf(in->note, sizeof in->note, "%s", g_stat.note);
+    g_last_presented = h; /* the newest one until another presents */
+}
+
+static void forget_info(VkSwapchainKHR h) {
+    for (int i = 0; i < MAX_INFOS; i++) if (g_infos[i].handle == h) memset(&g_infos[i], 0, sizeof g_infos[i]);
+}
+
+/* A different swapchain presented: report that one. With g_lock held. */
+static void presented(VkSwapchainKHR h) {
+    if (h == g_last_presented) return;
+    for (int i = 0; i < MAX_INFOS; i++) {
+        swapchain_info *in = &g_infos[i];
+        if (in->handle != h) continue;
+        g_stat.width = in->width;
+        g_stat.height = in->height;
+        g_stat.out_w = in->out_w;
+        g_stat.out_h = in->out_h;
+        g_stat.images = in->images;
+        g_stat.format = in->format;
+        g_stat.present_mode = in->present_mode;
+        g_stat.upscale = in->upscale;
+        snprintf(g_stat.note, sizeof g_stat.note, "%s", in->note);
+        g_last_presented = h;
+        write_status();
+        return;
+    }
+}
+
 /* If the driver keeps calling the larger swapchains out of date, the game would recreate its
    swapchain over and over: after 3 that fail within their first frames, stop upscaling. */
 static int g_rejected, g_upscale_disabled;
@@ -923,6 +981,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         g_stat.out_w = u->out.width;
         g_stat.out_h = u->out.height;
     }
+    remember_info(*out);
     write_status();
     pthread_mutex_unlock(&g_lock);
     logf_("swapchain %ux%u, format %d, present mode %d, %u images%s", ci->imageExtent.width, ci->imageExtent.height,
@@ -943,6 +1002,8 @@ static VKAPI_ATTR void VKAPI_CALL bh_DestroySwapchainKHR(VkDevice device, VkSwap
             g_swapchains[i] = NULL;
         }
     }
+    forget_info(sc);
+    if (g_last_presented == sc) g_last_presented = VK_NULL_HANDLE;
     pthread_mutex_unlock(&g_lock);
     if (u) destroy_upscaler(u);
     if (e && e->f.DestroySwapchainKHR) e->f.DestroySwapchainKHR(device, sc, alloc);
@@ -1014,6 +1075,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
         pthread_mutex_unlock(&g_lock);
         return VK_ERROR_DEVICE_LOST;
     }
+    if (info->swapchainCount > 0) presented(info->pSwapchains[0]);
 
     /* Upscale the presented images of our swapchains in one submit that waits for the game. */
     VkCommandBuffer cmds[MAX_SWAPCHAINS];

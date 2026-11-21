@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — Upscaler: report the presenting swapchain; test results (2026-11-21)
+- Second test log (unplugged runs count for power): GTA IV 1280x720 no FSR ~53 FPS in gameplay vs 1280x720 → Display ~48 (FSR ≈ −5 FPS, GPU 81–93% → 96–97%); 960x540 runs no faster; CPU 85–89°C within a minute and FPS falls with heat. Sleeping Dogs (1288x732 → Display): 60 FPS for ~1.5 min at GPU ~80%, then GPU 97–99% with falling temperatures and 30–40 FPS: thermal throttling; this game is GPU-bound, so a lower render resolution should help. Odd sizes (1288x732, 808x612) = windowed mode.
+- Bug: `upscaler.log` showed the surface scale flipping several times a second (0.333x0.593 ↔ 0.345x0.567): Sleeping Dogs keeps two swapchains and the status described the last created one. The layer now keeps info for every swapchain and, at present, reports the one presenting (`presented()`), so the status and the surface fit follow the game's window.
+- Test log: no lines for helper windows (<320x200, e.g. GTA IV's 1x1 at start) or before any frame is counted.
+
 ### [fix] — Upscaler: first test-log results; small fixes (2026-11-21)
 - Elad's `upscaler-sessions.log` (GTA IV, Native Rendering+ on, 60 FPS limit): in gameplay 848x480 → FSR 1280x720 ~53 FPS (GPU ~77%, 6–8 W), 960x540 → FSR 1280x720 ~57 (8.5–11.5 W), 1280x720 without FSR ~55 (7.5–10.5 W); CPU up to 79°C. Lowering the resolution barely changes FPS: GTA IV is CPU-bound here, so for it FSR is for image quality (1280x720 → Display), not speed.
 - Fixes: the layer skips swapchains under 320x200 (GTA IV makes a 1x1 one at start, which was "upscaled" to 4x4); battery temperature from `ACTION_BATTERY_CHANGED` (sysfs read "?"); min FPS ignores 0 (not drawn yet) and is capped at the average.

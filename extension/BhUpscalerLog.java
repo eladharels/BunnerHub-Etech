@@ -113,6 +113,12 @@ final class BhUpscalerLog {
                 powerCount++;
             }
             if (++samples < SAMPLES_PER_LINE) return;
+            // Nothing worth a line yet: a helper window (e.g. GTA IV's 1x1 at start) or no frames counted.
+            int[] size = size(st.get("swapchain"));
+            if (size == null || size[0] < 320 || size[1] < 200 || frames <= 0) {
+                resetInterval();
+                return;
+            }
 
             String settings = settings(ctx, id, st);
             StringBuilder b = new StringBuilder();
@@ -299,6 +305,16 @@ final class BhUpscalerLog {
         try (BufferedReader r = new BufferedReader(new FileReader(path))) {
             return r.readLine();
         } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static int[] size(String s) {
+        if (s == null) return null;
+        int x = s.indexOf('x');
+        try {
+            return x > 0 ? new int[]{Integer.parseInt(s.substring(0, x)), Integer.parseInt(s.substring(x + 1))} : null;
+        } catch (NumberFormatException e) {
             return null;
         }
     }
