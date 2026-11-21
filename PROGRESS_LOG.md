@@ -4,6 +4,9 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [feat] — Upscaler test log (2026-11-21)
+- Elad ran tests and asked for a log to send. `extension/BhUpscalerLog.java` (:wine process, started/stopped with `BhPlayTime.onGameResume` / `onGamePause` when the layer is on for the game): samples every 2 s, writes every 10 s to `/sdcard/BunnerHub-Etech/logs/upscaler-sessions.log` (rotated to `.old.log` at 1 MB). Header on each settings change: game size, `→ output FSR 1` with Upscale to and sharpness and Native Rendering+, or "no FSR (report only)" / "FSR not running: <note>". Lines: fps avg (frame counter delta from the layer's status) and min (per-second fps samples), GPU % (kgsl gpubusy), power (BatteryManager current × voltage), CPU / GPU / battery temperature (thermal zones, as the detailed HUD), charging.
+
 ### [feat] — Upscaler works full screen; Native Rendering+ check, "Upscale to" (2026-11-21)
 - Device log (`upscaler.log`): the DirectRendering surface was scaled (0.547 x 0.667) but the picture stayed cropped: GTA IV was going through GameHub's X server (GameScopeVK's DRI3/Present path), which copies a presented frame into the window and crops it. With Performance → **Native Rendering+ → Force Enable** (frames go to DirectRendering), it works: `FSR 1: 1280x720 → 2340x1080` full screen, sharp, ~110–119 FPS ("DXVK+" in the HUD). Elad: "Looking better".
 - `BhVkSurfaceScale` registers a `DirectRenderingStateListener` (Proxy, via `DirectRendering.Companion.a`) when the game starts, so the FSR tab shows "Native Rendering+: on · screen fit: scaled …" or warns that it is off and how to turn it on.

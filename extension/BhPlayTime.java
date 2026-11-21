@@ -104,6 +104,7 @@ public final class BhPlayTime {
             BhTrainerProgram.onGameResume(appCtx);
             // The upscaler's surface fit must run in this (:wine) process, where GameHub draws.
             if (BhVkLayer.mode(appCtx, curId) == BhVkLayer.UPSCALE) BhVkSurfaceScale.watch(appCtx);
+            BhUpscalerLog.start(appCtx, curId, curName);
             lastMark = SystemClock.elapsedRealtime();
             running = true;
             if (ticker != null) ticker.cancel(false);
@@ -125,6 +126,7 @@ public final class BhPlayTime {
     }
 
     public static synchronized void onGamePause(Activity activity) {
+        BhUpscalerLog.stop();
         try {
             if (!running) return;
             running = false;

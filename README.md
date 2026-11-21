@@ -812,6 +812,8 @@ Settings (per game, applied the next time the game starts):
 
 **Needs Native Rendering+** (Performance tab → Native Rendering+ → *Force Enable*): only GameHub's direct-rendering path can show a frame larger than the Wine screen; through the X server it is cropped. The FSR tab says whether Native Rendering+ is on. Set the game's own resolution to the same as its GameHub resolution (Wine resizes the window to a fullscreen game's mode).
 
+**Test log:** while a game with the layer on is in the foreground, `/sdcard/BunnerHub-Etech/logs/upscaler-sessions.log` gets a header line whenever the settings change (game size, FSR output, Upscale to, sharpness, Native Rendering+) and one line every 10 s: average and lowest FPS, GPU load, power, CPU / GPU / battery temperature, charging. Use *On, report only* as the no-FSR baseline.
+
 Device-tested 2026-11-21 (GTA IV): `FSR 1: 1280x720 → 2340x1080`, full screen with Native Rendering+ forced, ~110–119 FPS (frame limit 120).
 
 The status line shows `Layer: loaded · swapchain 1280x720 · 60 fps` and `FSR 1: 1280x720 → 2340x1080`, or why it isn't upscaling. How: the layer creates the real swapchain at the display size and runs FSR into it at present; GameHub's DirectRendering surface is scaled by display / Wine screen and would crop the larger frame (seen in the first device test), so `BhVkSurfaceScale` scales that surface by game size / output size while the layer reports upscaling. The app installs the library to `files/usr/lib/libbh_vklayer.so` and its manifest to `~/.config/vulkan/implicit_layer.d/bh_vklayer.json` (active only when the game's launch sets `BH_VKLAYER=1`).
