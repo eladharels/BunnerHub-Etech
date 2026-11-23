@@ -46,7 +46,8 @@ public final class BhFsrPanel {
 
     private static Context ctx;
     private static String gameId;
-    private static TextView gameLine, renderValue, outputValue, displayValue, layerLine;
+    private static TextView gameLine, renderValue, outputValue, displayValue, layerLine, historyText;
+    private static long historyLoaded;
     private static Button layerToggle, layerSharp, layerTarget;
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -71,6 +72,7 @@ public final class BhFsrPanel {
                         reading.set(false);
                     }
                     ui.post(BhFsrPanel::refresh);
+                    if (android.os.SystemClock.elapsedRealtime() - historyLoaded > 30_000) ui.post(BhFsrPanel::loadHistory);
                 });
             }
             ui.postDelayed(this, 1000);
@@ -175,6 +177,17 @@ public final class BhFsrPanel {
         }
         layer.addView(layerLine, margins(0, 10, 0, 0));
 
+        // ── Performance history ──
+        LinearLayout hist = card();
+        root.addView(hist, margins(0, 12, 0, 0));
+        TextView histTitle = text(14, WHITE, true);
+        histTitle.setText("Performance history (this game)");
+        hist.addView(histTitle);
+        historyText = text(11, GREY, false);
+        historyText.setText("…");
+        hist.addView(historyText, margins(0, 6, 0, 0));
+        loadHistory();
+
         refresh();
         return scroll;
     }
@@ -194,10 +207,24 @@ public final class BhFsrPanel {
     public static void onDestroyed() {
         ui.removeCallbacks(refresher);
         ctx = null;
-        gameLine = renderValue = outputValue = displayValue = layerLine = null;
+        gameLine = renderValue = outputValue = displayValue = layerLine = historyText = null;
         layerToggle = layerSharp = layerTarget = null;
         status = new HashMap<>();
         statusText = null;
+    }
+
+    /** Reads the history off the UI thread (on open, then every 30 s while shown). */
+    private static void loadHistory() {
+        Context c = ctx;
+        String id = gameId;
+        if (c == null || historyText == null) return;
+        historyLoaded = android.os.SystemClock.elapsedRealtime();
+        io.execute(() -> {
+            String text = id == null ? "No game running." : BhPerfHistory.summary(c, id);
+            ui.post(() -> {
+                if (historyText != null) historyText.setText(text);
+            });
+        });
     }
 
     private static void changeSharp(int delta) {

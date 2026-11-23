@@ -812,6 +812,12 @@ Settings (per game, applied the next time the game starts):
 
 **Needs Native Rendering+** (Performance tab → Native Rendering+ → *Force Enable*): only GameHub's direct-rendering path can show a frame larger than the Wine screen; through the X server it is cropped. The FSR tab says whether Native Rendering+ is on. Set the game's own resolution to the same as its GameHub resolution (Wine resizes the window to a fullscreen game's mode).
 
+**Live settings:** once a game has started with the upscaler loaded (*report only* or *FSR*), every change in the FSR tab applies right away: sharpness instantly, upscaling on/off and *Upscale to* within a moment (the game rebuilds its swapchain). *Off* then just stops upscaling until the game closes. The app writes `files/bh_vklayer_control.txt`; the layer checks it twice a second.
+
+**Screenshot** (FSR tab): saves the frame being shown, at full FSR resolution and without the sidebar or on-screen controls, as a PNG in `BunnerHub-Etech/screenshots/`. Needs the upscaler loaded.
+
+**Performance history** (FSR tab): every 30 s or more of play with the same settings becomes a session (average FPS, low FPS, GPU, CPU temperature, power), per game, kept in `files/bh_perf/`. The tab ranks the settings by average FPS and lists the latest sessions.
+
 **Test log:** while a game with the layer on is in the foreground, `/sdcard/BunnerHub-Etech/logs/upscaler-sessions.log` gets a header line whenever the settings change (game size, FSR output, Upscale to, sharpness, Native Rendering+) and one line every 10 s: average and lowest FPS, GPU load, power, CPU / GPU / battery temperature, charging. Use *On, report only* as the no-FSR baseline.
 
 Device-tested 2026-11-21 (GTA IV): `FSR 1: 1280x720 → 2340x1080`, full screen with Native Rendering+ forced, ~110–119 FPS (frame limit 120).

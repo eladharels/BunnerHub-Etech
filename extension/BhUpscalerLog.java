@@ -73,6 +73,8 @@ final class BhUpscalerLog {
     static synchronized void stop() {
         if (task != null) task.cancel(false);
         task = null;
+        Context ctx = app;
+        IO.execute(() -> BhPerfHistory.flush(ctx)); // end the history segment
     }
 
     private static void resetInterval() {
@@ -129,23 +131,28 @@ final class BhUpscalerLog {
                 lastSettings = settings;
             }
             b.append(time).append("  ");
+            int gpuAvg = gpuCount > 0 ? gpuSum / gpuCount : -1;
+            float powerAvg = powerCount > 0 ? powerSum / powerCount : 0f;
+            int cpuT = readZoneTemp(new String[]{"cpu-cluster0", "cpu0-thermal", "cpu-thermal", "cpucluster", "cpu"}, null);
+            int gpuT = readZoneTemp(new String[]{"gpuss-0", "gpuss", "gpu-thermal", "gpu"},
+                    "/sys/class/kgsl/kgsl-3d0/temp");
+            boolean charging = isCharging(ctx);
             if (frames >= framesAtStart && framesAtStart >= 0 && now > msAtStart && age < 5) {
                 double avg = (frames - framesAtStart) * 1000.0 / (now - msAtStart);
                 // min is sampled every 2 s, so a short stall can pull the average under it.
                 b.append(String.format(Locale.US, "fps avg %5.1f  min %5.1f", avg,
                         minFps == Double.MAX_VALUE ? avg : Math.min(minFps, avg)));
+                if (avg >= 1) BhPerfHistory.sample(ctx, id, shortSettings(st), avg, gpuAvg, cpuT, gpuT, powerAvg, charging);
             } else {
                 b.append("fps   (game not drawing)     ");
             }
-            b.append("  gpu ").append(gpuCount > 0 ? (gpuSum / gpuCount) + "%" : "?");
+            b.append("  gpu ").append(gpuAvg >= 0 ? gpuAvg + "%" : "?");
             b.append(String.format(Locale.US, "  power %s", powerCount > 0
-                    ? String.format(Locale.US, "%.1fW", powerSum / powerCount) : "?"));
-            b.append("  temp cpu ").append(temp(readZoneTemp(new String[]{"cpu-cluster0", "cpu0-thermal",
-                    "cpu-thermal", "cpucluster", "cpu"}, null)));
-            b.append(" gpu ").append(temp(readZoneTemp(new String[]{"gpuss-0", "gpuss", "gpu-thermal", "gpu"},
-                    "/sys/class/kgsl/kgsl-3d0/temp")));
+                    ? String.format(Locale.US, "%.1fW", powerAvg) : "?"));
+            b.append("  temp cpu ").append(temp(cpuT));
+            b.append(" gpu ").append(temp(gpuT));
             b.append(" bat ").append(temp(readBatteryTemp(ctx)));
-            if (isCharging(ctx)) b.append("  charging");
+            if (charging) b.append("  charging");
             b.append('\n');
             write(b.toString());
             resetInterval();
@@ -153,6 +160,20 @@ final class BhUpscalerLog {
             Log.w(TAG, "tick failed", t);
             resetInterval();
         }
+    }
+
+    /** The history's settings label: "960x540 → 2340x1080 FSR · sharpness 4/5" or "1280x720 · no FSR". */
+    private static String shortSettings(Map<String, String> st) {
+        String game = st.get("swapchain");
+        StringBuilder s = new StringBuilder(game != null ? game : "?");
+        if ("on".equals(st.get("upscale"))) {
+            s.append(" → ").append(st.get("output")).append(" FSR · sharpness ").append(BhVkLayer.appliedSharp + 1)
+                    .append('/').append(BhVkLayer.SHARP_LEVELS);
+            if (Boolean.FALSE.equals(BhVkSurfaceScale.direct)) s.append(" (Native Rendering+ off)");
+        } else {
+            s.append(" · no FSR");
+        }
+        return s.toString();
     }
 
     private static String settings(Context ctx, String id, Map<String, String> st) {
