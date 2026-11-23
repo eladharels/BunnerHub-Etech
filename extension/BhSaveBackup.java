@@ -51,6 +51,8 @@ public final class BhSaveBackup {
     private static final String TAG = "BhSaveBackup";
     private static final String CHIP_TAG = "bh_saves_chip";
     private static final int KEEP = 5;
+    /** Automatic backups (after playing) kept, separately from the manual ones. */
+    private static final int KEEP_AUTO = 3;
     private static final long WARN_BYTES = 1L << 30;
     private static final long MAX_BYTES = 4L << 30;
 
@@ -77,6 +79,8 @@ public final class BhSaveBackup {
                     if (has) showChip(activity, id, name);
                     else removeChip(activity); // also clears an earlier game's chip
                 });
+                // Fallback for the backup after playing (the game's process may have ended first).
+                if (id != null) autoBackup(activity, id, name);
             } catch (Throwable t) {
                 Log.w(TAG, "onDetail failed", t);
             }
@@ -158,14 +162,26 @@ public final class BhSaveBackup {
                         "Internal storage"))
                 .append("\n\n");
         msg.append(list.isEmpty() ? "No backups yet." : "Latest backup: " + describe(list.get(0)) + " ("
-                + list.size() + (list.size() == 1 ? " backup" : " backups") + " kept, up to " + KEEP + ")");
+                + list.size() + (list.size() == 1 ? " backup" : " backups") + " kept: up to " + KEEP
+                + " of yours and " + KEEP_AUTO + " automatic)");
         if (!hasContainer) {
             msg.append("\n\nThis game has no container right now (not launched since it was installed). "
                     + "Start it once, close it, then restore.");
         }
+        android.widget.CheckBox auto = new android.widget.CheckBox(activity);
+        auto.setText("Back up automatically after playing (only when saves changed; keeps the last "
+                + KEEP_AUTO + ", apart from yours)");
+        auto.setChecked(autoEnabled(activity));
+        auto.setOnCheckedChangeListener((v, on) -> setAutoEnabled(activity, on));
+        int pad = BhPlayTime.dp(activity, 20);
+        auto.setPadding(auto.getPaddingLeft(), BhPlayTime.dp(activity, 8), pad, 0);
+        FrameLayout box = new FrameLayout(activity);
+        box.setPadding(pad, 0, pad, 0);
+        box.addView(auto);
         AlertDialog.Builder b = new AlertDialog.Builder(activity)
                 .setTitle("Saves: " + name)
                 .setMessage(msg.toString())
+                .setView(box)
                 .setNegativeButton("Close", null);
         if (hasContainer) b.setPositiveButton("Back up now", (d, w) -> runBackup(activity, id, name, null));
         if (hasContainer && !list.isEmpty()) {
@@ -280,13 +296,17 @@ public final class BhSaveBackup {
      * newest KEEP backups, never deleting {@code keep} (a backup about to be
      * restored).
      */
-    static synchronized File backup(Context ctx, String id, String name, File keep) throws Exception {
+    static File backup(Context ctx, String id, String name, File keep) throws Exception {
+        return backup(ctx, id, name, keep, false);
+    }
+
+    static synchronized File backup(Context ctx, String id, String name, File keep, boolean auto) throws Exception {
         File container = container(ctx, id);
         if (!container.isDirectory()) throw new IllegalStateException("This game has no container yet");
         File dir = dir(name, id);
         if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("Cannot create " + dir);
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
-        File out = new File(dir, "saves-" + stamp + ".zip");
+        File out = new File(dir, "saves-" + stamp + (auto ? "-auto" : "") + ".zip");
         File part = new File(dir, out.getName() + ".part");
         long[] size = {0};
         java.util.Set<String> seen = new java.util.HashSet<>(); // folders already zipped (links can loop)
@@ -306,11 +326,16 @@ public final class BhSaveBackup {
             throw e;
         }
         if (!part.renameTo(out)) throw new IllegalStateException("Cannot save the backup");
+        // Manual and automatic backups are pruned separately, so automatic ones never push out yours.
         List<File> all = backups(name, id);
-        int kept = 0;
+        int kept = 0, keptAuto = 0;
         for (File f : all) {
-            if (f.equals(keep) || f.equals(out) || kept < KEEP) {
-                if (!f.equals(keep)) kept++;
+            boolean isAuto = isAuto(f);
+            if (f.equals(keep) || f.equals(out) || (isAuto ? keptAuto < KEEP_AUTO : kept < KEEP)) {
+                if (!f.equals(keep)) {
+                    if (isAuto) keptAuto++;
+                    else kept++;
+                }
                 continue;
             }
             if (!f.delete()) Log.w(TAG, "cannot delete " + f);
@@ -462,6 +487,95 @@ public final class BhSaveBackup {
         }
     }
 
+    // ── Automatic backup after playing ───────────────────────────────────────
+
+    static boolean isAuto(File backup) {
+        return backup.getName().endsWith("-auto.zip");
+    }
+
+    private static android.content.SharedPreferences prefs(Context ctx) {
+        return ctx.getApplicationContext().getSharedPreferences("bh_saves", Context.MODE_PRIVATE);
+    }
+
+    static boolean autoEnabled(Context ctx) {
+        return prefs(ctx).getBoolean("auto", true);
+    }
+
+    static void setAutoEnabled(Context ctx, boolean on) {
+        prefs(ctx).edit().putBoolean("auto", on).apply();
+    }
+
+    /** BhPlayTime.onGamePause when the game screen closes: back up a moment later, off the UI thread. */
+    static void autoBackupAsync(Context ctx, String id, String name) {
+        Context app = ctx.getApplicationContext();
+        new Thread(() -> {
+            try {
+                Thread.sleep(3000); // let the game's last writes land
+            } catch (InterruptedException ignored) {
+            }
+            autoBackup(app, id, name);
+        }, "BhSaveBackupAuto").start();
+    }
+
+    /**
+     * Backs up the game's saves if any save file is newer than its newest backup (automatic or
+     * not) and automatic backups are on. Safe to call from two processes at once (a lock file).
+     */
+    static void autoBackup(Context ctx, String id, String name) {
+        try {
+            if (!autoEnabled(ctx)) return;
+            File container = container(ctx, id);
+            if (!container.isDirectory()) return;
+            String n = name != null && !name.isEmpty() ? name : "Game " + id;
+            List<File> list = backups(n, id);
+            long last = list.isEmpty() ? 0 : list.get(0).lastModified();
+            long newest = newestSave(container);
+            if (newest <= last + 2000) return; // nothing changed since the last backup
+            File dir = dir(n, id);
+            if (!dir.isDirectory() && !dir.mkdirs()) return;
+            File lock = new File(dir, ".auto.lock");
+            if (lock.exists() && System.currentTimeMillis() - lock.lastModified() < 10 * 60_000) return;
+            if (!lock.createNewFile() && System.currentTimeMillis() - lock.lastModified() < 10 * 60_000) return;
+            lock.setLastModified(System.currentTimeMillis()); // a stale lock (a crash) is taken over
+            try {
+                File made = backup(ctx, id, n, null, true);
+                Log.i(TAG, "automatic backup: " + made);
+            } finally {
+                if (!lock.delete()) Log.w(TAG, "cannot delete " + lock);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "automatic backup failed", t);
+        }
+    }
+
+    /** The newest modification time of the files a backup would hold (0 if none). */
+    static long newestSave(File container) {
+        long[] newest = {0};
+        int[] budget = {200_000};
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        newest(new File(container, "drive_c/users"), newest, budget, seen);
+        String steam = steamDir(container);
+        if (steam != null) newest(new File(container, steam + "/userdata"), newest, budget, seen);
+        return newest[0];
+    }
+
+    private static void newest(File f, long[] newest, int[] budget, java.util.Set<String> seen) {
+        if (--budget[0] < 0) return;
+        if (f.isDirectory()) {
+            if (skip(f.getName())) return;
+            try {
+                if (!seen.add(f.getCanonicalPath())) return;
+            } catch (Exception e) {
+                return;
+            }
+            File[] kids = f.listFiles();
+            if (kids != null) for (File k : kids) newest(k, newest, budget, seen);
+        } else {
+            long m = f.lastModified();
+            if (m > newest[0]) newest[0] = m;
+        }
+    }
+
     static String describe(File backup) {
         String n = backup.getName();
         String when = n;
@@ -470,7 +584,7 @@ public final class BhSaveBackup {
             when = new SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(d);
         } catch (Throwable ignored) {
         }
-        return when + "  ·  " + humanSize(backup.length());
+        return when + "  ·  " + humanSize(backup.length()) + (isAuto(backup) ? "  ·  automatic" : "");
     }
 
     private static String humanSize(long b) {

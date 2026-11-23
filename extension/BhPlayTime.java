@@ -142,6 +142,8 @@ public final class BhPlayTime {
             String id = curId;
             String name = curName;
             IO.execute(() -> add(ctx, id, name, elapsed));
+            // Leaving the game (not just switching apps): back up its saves if they changed.
+            if (activity != null && activity.isFinishing() && id != null) BhSaveBackup.autoBackupAsync(ctx, id, name);
         } catch (Throwable t) {
             Log.w(TAG, "onGamePause failed", t);
         }
