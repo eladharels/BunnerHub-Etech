@@ -5,6 +5,7 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 ---
 
 ### [fix] — Fixes from a full code review (2026-11-23)
+- Device-tested 2026-11-23 (Prototype 2): live settings work (sharpness 5→1→5→2, report only ↔ FSR, Upscale to Display → 1920x1080 → 1600x900 → 1280x720 cycled in-game, about a 1 s hitch per swapchain rebuild); Screenshot works; automatic save backup made after playing ("23 Nov 2026, 12:02 · automatic", checkbox shown). Merged to main.
 - Review of everything since `3da51bc` (upscaler, menu cleanup, test log, live settings, screenshots, save backups, history); 10 findings, all fixed:
   - Layer: `vkDeviceWaitIdle` (needs every queue the game might be using) replaced by a fence per upscaler image; re-recording (sharpness) and destroying wait only for the layer's own submits. The upscale submit carries that fence; a screenshot of the FSR output goes in a second submit with its own fence.
   - Layer: if recording the FSR commands fails, upscaling is switched off and the swapchain made stale (no unwritten frames on screen).
