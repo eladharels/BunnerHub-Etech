@@ -346,6 +346,8 @@ public final class BhVkLayer {
             String note = m.get("note");
             if (note != null && !note.isEmpty()) b.append("\n").append(note);
         }
+        String stuck = m.get("stuck");
+        if (stuck != null && !stuck.isEmpty()) b.append("\n⚠ Not drawing: ").append(stuck);
         String app = m.get("app");
         if (app != null && !app.isEmpty()) b.append("\nApp: ").append(app);
         return b.toString();

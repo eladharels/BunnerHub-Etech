@@ -4,6 +4,10 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [diag] — Present watchdog for freeze reports (2026-11-23)
+- Elad: Prototype 2 freezes since the heat-control build. His logs: two freezes (19:58:06, 20:23:07) where the game stops presenting ("game not drawing", GPU 2–13%); FSR wasn't running in either (Upscale to = game size, pass-through); the first had no frame cap active, the second cap 45; the trainer had exited at start (0 s). Not enough to tell whether the layer, the driver or the game hangs.
+- Layer: `vkQueuePresentKHR` now records its stage (layer bookkeeping / fence wait / submit / frame cap wait / driver present); a watchdog thread reports a stage held over 3 s, or no present from the game for over 3 s, as `stuck=` in the status file and the log (cleared when frames come back). The test log's "game not drawing" lines and the FSR tab status show it. Checked locally: an app that stops presenting → "no present from the game for 6 s (not in the layer)".
+
 ### [feat] — Heat control and overheat warning (2026-11-23)
 - Every test log showed 60 FPS for a minute or two, then thermal throttling to 25–35. Elad picked the thermal auto-limiter and the overheat warning.
 - Layer: `fps_cap=N` in the control file (read at start and live); `pace()` before the real present waits until 1/N s after the previous frame's slot (a late frame restarts the schedule; outside g_lock); status `fps_cap=`. Checked locally: vkcube uncapped ~1200 FPS → 45.0 → 30.0 → uncapped, switched live.
