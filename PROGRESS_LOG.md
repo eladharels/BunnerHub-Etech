@@ -4,6 +4,17 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [fix] — Fixes from a full code review (2026-11-23)
+- Review of everything since `3da51bc` (upscaler, menu cleanup, test log, live settings, screenshots, save backups, history); 10 findings, all fixed:
+  - Layer: `vkDeviceWaitIdle` (needs every queue the game might be using) replaced by a fence per upscaler image; re-recording (sharpness) and destroying wait only for the layer's own submits. The upscale submit carries that fence; a screenshot of the FSR output goes in a second submit with its own fence.
+  - Layer: if recording the FSR commands fails, upscaling is switched off and the swapchain made stale (no unwritten frames on screen).
+  - Layer: settings and the screenshot counter are read at instance creation, so an early screenshot request isn't swallowed; the app also deletes the old capture before asking and allows one screenshot at a time.
+  - Layer: any number of present wait semaphores (was capped at 16); clearer note when "Upscale to" is smaller than the game.
+  - App: the layer `.so` is reinstalled when its contents differ (was: size only).
+  - Saves: the automatic-backup setting is a marker file (`files/bh_saves_auto_off`), read fresh in every process (the :wine process kept a stale copy of the main process's SharedPreferences); the backup lock is an OS file lock (`FileChannel.tryLock`, released if a process dies) and the "saves changed" check is repeated under it.
+  - Max Adreno Clocks: its switch was hidden but WineActivity still re-applied the stored setting at each launch with no way to turn it off; the re-apply is skipped (smali `goto`) and the setting cleared on game start. Sustained Performance keeps its Settings → Advanced switch.
+- Re-tested locally: screenshots (two in a row), live on/off/sharpness under the validation layer (only the deliberate oversize message), automatic backups (one per change, 3 kept, off works).
+
 ### [feat] — Live upscaler settings, screenshots, automatic save backup, performance history (2026-11-23)
 - Elad asked for: changes without restarting (for easier tests), a screenshot button, automatic save backups, per-game performance history, and a merge. `main` fast-forwarded to `40f4960` (everything device-tested so far).
 - **Live settings**: `bh_vklayer.c` reads `BH_VKLAYER_CONTROL` (`upscale=`, `out=WxH`, `sharp=`, `shot=`) at start and twice a second from present. Sharpness → new RCAS constants, commands re-recorded; upscale on/off or a new size → every swapchain marked stale and its next acquire returns `VK_ERROR_OUT_OF_DATE_KHR`, so the game recreates it with the new settings (the guards reset for a new try). `BhVkLayer.writeControl` on launch and on every FSR tab change; the tab only asks for a restart when the game started without the layer. Checked locally (vkcube / test app: on → FSR swapchain, off → plain; sharpness picked up).

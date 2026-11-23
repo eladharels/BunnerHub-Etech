@@ -146,7 +146,7 @@ public final class BhVkLayer {
             try (InputStream in = ctx.getAssets().open(ASSET)) {
                 so = readAll(in);
             }
-            if (!lib.isFile() || lib.length() != so.length) {
+            if (!sameContents(lib, so)) { // contents, not just size: a new build can strip to the same size
                 File parent = lib.getParentFile();
                 if (parent != null && !parent.isDirectory()) parent.mkdirs();
                 File tmp = new File(lib.getPath() + ".tmp");
@@ -210,6 +210,15 @@ public final class BhVkLayer {
             }
         }
         return dirs;
+    }
+
+    private static boolean sameContents(File f, byte[] want) {
+        if (!f.isFile() || f.length() != want.length) return false;
+        try (InputStream in = new FileInputStream(f)) {
+            return Arrays.equals(readAll(in), want);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static void writeIfChanged(File f, String text) throws Exception {

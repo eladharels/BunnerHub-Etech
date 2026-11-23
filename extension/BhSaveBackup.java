@@ -493,16 +493,24 @@ public final class BhSaveBackup {
         return backup.getName().endsWith("-auto.zip");
     }
 
-    private static android.content.SharedPreferences prefs(Context ctx) {
-        return ctx.getApplicationContext().getSharedPreferences("bh_saves", Context.MODE_PRIVATE);
+    /** Off = this marker file exists. A file, not SharedPreferences: the :wine process (which
+        backs up when a game closes) would keep a stale cached copy of the main process's prefs. */
+    private static File autoOffFile(Context ctx) {
+        return new File(ctx.getFilesDir(), "bh_saves_auto_off");
     }
 
     static boolean autoEnabled(Context ctx) {
-        return prefs(ctx).getBoolean("auto", true);
+        return !autoOffFile(ctx).exists();
     }
 
     static void setAutoEnabled(Context ctx, boolean on) {
-        prefs(ctx).edit().putBoolean("auto", on).apply();
+        File f = autoOffFile(ctx);
+        try {
+            if (on) f.delete();
+            else f.createNewFile();
+        } catch (Exception e) {
+            Log.w(TAG, "cannot change the automatic backup setting", e);
+        }
     }
 
     /** BhPlayTime.onGamePause when the game screen closes: back up a moment later, off the UI thread. */
@@ -533,15 +541,17 @@ public final class BhSaveBackup {
             if (newest <= last + 2000) return; // nothing changed since the last backup
             File dir = dir(n, id);
             if (!dir.isDirectory() && !dir.mkdirs()) return;
-            File lock = new File(dir, ".auto.lock");
-            if (lock.exists() && System.currentTimeMillis() - lock.lastModified() < 10 * 60_000) return;
-            if (!lock.createNewFile() && System.currentTimeMillis() - lock.lastModified() < 10 * 60_000) return;
-            lock.setLastModified(System.currentTimeMillis()); // a stale lock (a crash) is taken over
-            try {
+            // An OS file lock: held by one process at a time and released if that process dies.
+            File lockFile = new File(dir, ".auto.lock");
+            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(lockFile, "rw");
+                 java.nio.channels.FileLock lock = raf.getChannel().tryLock()) {
+                if (lock == null) return; // the other process is backing up right now
+                // Again under the lock: the other process may have just made one.
+                List<File> again = backups(n, id);
+                long lastNow = again.isEmpty() ? 0 : again.get(0).lastModified();
+                if (newestSave(container) <= lastNow + 2000) return;
                 File made = backup(ctx, id, n, null, true);
                 Log.i(TAG, "automatic backup: " + made);
-            } finally {
-                if (!lock.delete()) Log.w(TAG, "cannot delete " + lock);
             }
         } catch (Throwable t) {
             Log.w(TAG, "automatic backup failed", t);

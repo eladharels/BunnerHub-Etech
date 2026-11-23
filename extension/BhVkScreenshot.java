@@ -33,13 +33,21 @@ final class BhVkScreenshot {
     private static final String TAG = "BhVkScreenshot";
     private static final long WAIT_MS = 6000;
 
+    private static final java.util.concurrent.atomic.AtomicBoolean busy = new java.util.concurrent.atomic.AtomicBoolean();
+
     private BhVkScreenshot() {}
 
     static void take(Context ctx, String gameId, String gameName) {
         Context app = ctx.getApplicationContext();
+        if (!BhVkLayer.live(gameId)) {
+            toast(app, "Screenshots need the upscaler loaded: set it to \"report only\" or FSR and restart the game.");
+            return;
+        }
+        if (!busy.compareAndSet(false, true)) return; // one at a time: they share the layer's file
+        BhVkLayer.shotFile(app).delete(); // never mistake an old capture for this one
         int req = BhVkLayer.requestShot(app, gameId);
         if (req < 0) {
-            toast(app, "Screenshots need the upscaler loaded: set it to \"report only\" or FSR and restart the game.");
+            busy.set(false);
             return;
         }
         toast(app, "Taking a screenshot…");
@@ -50,6 +58,8 @@ final class BhVkScreenshot {
             } catch (Throwable t) {
                 Log.w(TAG, "screenshot failed", t);
                 msg = "Screenshot failed: " + t.getMessage();
+            } finally {
+                busy.set(false);
             }
             toast(app, msg);
         }, "BhVkScreenshot").start();

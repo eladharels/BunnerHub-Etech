@@ -190,7 +190,8 @@ typedef struct {
     X(EndCommandBuffer) X(CmdPipelineBarrier) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants)   \
     X(CmdDispatch) X(CmdCopyImage) X(CreateSemaphore) X(DestroySemaphore) X(AcquireNextImageKHR)            \
     X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(BindBufferMemory) X(MapMemory)            \
-    X(UnmapMemory) X(CmdCopyImageToBuffer) X(CreateFence) X(DestroyFence) X(GetFenceStatus)
+    X(UnmapMemory) X(CmdCopyImageToBuffer) X(CreateFence) X(DestroyFence) X(GetFenceStatus)             \
+    X(WaitForFences) X(ResetFences)
 
 typedef struct {
 #define X(n) PFN_vk##n n;
@@ -259,6 +260,11 @@ typedef struct {
     uint32_t con_easu[16], con_rcas[4];
     uint64_t presents;
     int rerecord; /* sharpness changed */
+    /* One fence per image: the layer's submit for that image. Waiting on these (not
+       vkDeviceWaitIdle, which needs every queue the game may be using) before re-recording or
+       destroying keeps the layer off the game's other queues. */
+    VkFence fence[MAX_IMAGES];
+    int fence_used[MAX_IMAGES];
 } upscaler;
 
 static upscaler *g_swapchains[MAX_SWAPCHAINS];
@@ -449,10 +455,21 @@ static VkResult make_view(device_entry *d, VkImage img, VkFormat format, VkImage
     return d->f.CreateImageView(d->device, &vci, NULL, view);
 }
 
+/* Waits for the layer's own submits that use this upscaler (at most 2 s each). */
+static void wait_upscaler(upscaler *u) {
+    device_entry *d = u->d;
+    for (uint32_t i = 0; i < MAX_IMAGES; i++) {
+        if (!u->fence[i] || !u->fence_used[i]) continue;
+        d->f.WaitForFences(d->device, 1, &u->fence[i], VK_TRUE, 2000000000ull);
+    }
+}
+
 static void destroy_upscaler(upscaler *u) {
     device_entry *d = u->d;
     VkDevice dev = d->device;
-    d->f.DeviceWaitIdle(dev);
+    wait_upscaler(u);
+    for (uint32_t i = 0; i < MAX_IMAGES; i++)
+        if (u->fence[i]) d->f.DestroyFence(dev, u->fence[i], NULL);
     if (u->pool) d->f.DestroyCommandPool(dev, u->pool, NULL);
     for (uint32_t i = 0; i < MAX_IMAGES; i++) {
         if (u->done[i]) d->f.DestroySemaphore(dev, u->done[i], NULL);
@@ -598,7 +615,11 @@ static VkResult setup_upscaler(upscaler *u, const VkSwapchainCreateInfoKHR *sci,
     }
 
     VkSemaphoreCreateInfo semci = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    for (uint32_t i = 0; i < u->count; i++) TRY(d->f.CreateSemaphore(dev, &semci, NULL, &u->done[i]));
+    VkFenceCreateInfo fci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    for (uint32_t i = 0; i < u->count; i++) {
+        TRY(d->f.CreateSemaphore(dev, &semci, NULL, &u->done[i]));
+        TRY(d->f.CreateFence(dev, &fci, NULL, &u->fence[i]));
+    }
 
     FsrEasuCon(u->con_easu, u->con_easu + 4, u->con_easu + 8, u->con_easu + 12, (AF1)u->in.width,
                (AF1)u->in.height, (AF1)u->in.width, (AF1)u->in.height, (AF1)u->out.width, (AF1)u->out.height);
@@ -627,7 +648,7 @@ static VkResult record(upscaler *u, uint32_t family) {
     device_entry *d = u->d;
     VkDevice dev = d->device;
     if (u->pool) {
-        d->f.DeviceWaitIdle(dev);
+        wait_upscaler(u); /* the old command buffers must be done */
         d->f.DestroyCommandPool(dev, u->pool, NULL);
         u->pool = VK_NULL_HANDLE;
     }
@@ -800,6 +821,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateInstance(const VkInstanceCreateIn
     if (r != VK_SUCCESS) return r;
 
     pthread_mutex_lock(&g_lock);
+    ctl_init(); /* settings (and the screenshot counter) as they are at start, before any request */
     for (int i = 0; i < MAX_ENTRIES; i++) {
         instance_entry *e = &g_instances[i];
         if (e->key) continue;
@@ -964,8 +986,15 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         pthread_mutex_unlock(&g_lock);
     } else if (!target.width && upscale_wanted() && ci->imageExtent.width >= 320 &&
                ci->imageExtent.height >= 200) {
-        note("no upscale: the game's %ux%u is already about the display size", ci->imageExtent.width,
-             ci->imageExtent.height);
+        pthread_mutex_lock(&g_lock);
+        unsigned ow = g_ctl.out_w, oh = g_ctl.out_h;
+        pthread_mutex_unlock(&g_lock);
+        if (ow < ci->imageExtent.width || oh < ci->imageExtent.height)
+            note("no upscale: \"Upscale to\" %ux%u is smaller than the game's %ux%u", ow, oh, ci->imageExtent.width,
+                 ci->imageExtent.height);
+        else
+            note("no upscale: the game's %ux%u is already about the output size %ux%u", ci->imageExtent.width,
+                 ci->imageExtent.height, ow, oh);
     }
     if (target.width) {
         VkSurfaceCapabilitiesKHR caps;
@@ -1258,7 +1287,7 @@ static void shot_free(void) { /* with g_lock held */
 static void shot_release(void *p) { /* the device is going away; with g_lock held */
     device_entry *e = (device_entry *)p;
     if (!g_shot.d || g_shot.d != e) return;
-    e->f.DeviceWaitIdle(e->device);
+    if (g_shot.busy) e->f.WaitForFences(e->device, 1, &g_shot.fence, VK_TRUE, 2000000000ull);
     shot_free();
 }
 
@@ -1417,7 +1446,14 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
             u->rerecord = 0;
             VkResult rr = record(u, family);
             if (rr != VK_SUCCESS) {
-                logf_("recording the upscale commands failed (%d)", (int)rr);
+                /* Nothing would fill the real image: go back to pass-through (the game recreates
+                   its swapchain at the next acquire). */
+                snprintf(g_stat.note, sizeof g_stat.note, "upscale off: recording the FSR commands failed (%d)",
+                         (int)rr);
+                logf_("%s", g_stat.note);
+                g_upscale_disabled = 1;
+                for (int i = 0; i < MAX_INFOS; i++) if (g_infos[i].handle == info->pSwapchains[k]) g_infos[i].stale = 1;
+                write_status();
                 continue;
             }
         }
@@ -1469,21 +1505,48 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
         pthread_mutex_unlock(&g_lock);
         return next(queue, info);
     }
-    VkPipelineStageFlags stages[MAX_WAITS];
-    uint32_t waits = info->waitSemaphoreCount < MAX_WAITS ? info->waitSemaphoreCount : MAX_WAITS;
+    /* Wait for all of the game's semaphores (heap when there are many). */
+    uint32_t waits = info->waitSemaphoreCount;
+    VkPipelineStageFlags stage_buf[MAX_WAITS];
+    VkPipelineStageFlags *stages = waits <= MAX_WAITS ? stage_buf : malloc(waits * sizeof *stages);
+    if (!stages) {
+        pthread_mutex_unlock(&g_lock);
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     for (uint32_t i = 0; i < waits; i++) stages[i] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    si.waitSemaphoreCount = waits;
-    si.pWaitSemaphores = info->pWaitSemaphores;
-    si.pWaitDstStageMask = stages;
-    si.commandBufferCount = n;
-    si.pCommandBuffers = cmds;
-    si.signalSemaphoreCount = nsig;
-    si.pSignalSemaphores = signals;
+    /* Submit 1: the upscale commands (+ a pass-through screenshot), fenced by the first upscaler's
+       fence for this image. Submit 2: a screenshot of the FSR output, after it, with its own fence. */
+    VkFence up_fence = VK_NULL_HANDLE;
+    if (first) {
+        up_fence = first->fence[first_idx];
+        if (first->fence_used[first_idx]) {
+            e->f.WaitForFences(e->device, 1, &up_fence, VK_TRUE, 2000000000ull); /* done long ago */
+        }
+        e->f.ResetFences(e->device, 1, &up_fence);
+        first->fence_used[first_idx] = 1;
+    }
+    uint32_t n1 = nups ? nups : n; /* without an upscaler, the screenshot is all there is */
+    VkSubmitInfo si[2];
+    memset(si, 0, sizeof si);
+    si[0].sType = si[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si[0].waitSemaphoreCount = waits;
+    si[0].pWaitSemaphores = info->pWaitSemaphores;
+    si[0].pWaitDstStageMask = stages;
+    si[0].commandBufferCount = n1;
+    si[0].pCommandBuffers = cmds;
+    si[0].signalSemaphoreCount = nsig;
+    si[0].pSignalSemaphores = signals;
+    int second = nups && n > nups; /* a screenshot of the FSR output */
+    if (second) {
+        si[1].commandBufferCount = n - nups;
+        si[1].pCommandBuffers = cmds + nups;
+    }
     PFN_vkQueueSubmit submit = e->f.QueueSubmit;
     pthread_mutex_unlock(&g_lock);
 
-    VkResult r = submit(queue, 1, &si, fence);
+    VkResult r = submit(queue, 1, &si[0], nups ? up_fence : fence);
+    if (r == VK_SUCCESS && second) r = submit(queue, 1, &si[1], fence);
+    if (stages != stage_buf) free(stages);
     if (r != VK_SUCCESS) {
         if (fence) {
             pthread_mutex_lock(&g_lock);

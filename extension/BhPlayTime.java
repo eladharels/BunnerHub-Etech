@@ -96,6 +96,9 @@ public final class BhPlayTime {
             if (!(id instanceof String) || ((String) id).isEmpty()) return;
 
             appCtx = activity.getApplicationContext();
+            // Max Adreno Clocks' switch was removed from the sidebar: don't leave it stuck on.
+            android.content.SharedPreferences bh = appCtx.getSharedPreferences("bh_prefs", Context.MODE_PRIVATE);
+            if (bh.getBoolean("max_adreno_clocks", false)) bh.edit().putBoolean("max_adreno_clocks", false).apply();
             curId = (String) id;
             Object name = readField(data, "h");
             curName = name instanceof String ? (String) name : null;

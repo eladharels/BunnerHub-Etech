@@ -6152,7 +6152,9 @@
     const/4 v4, 0x0
     invoke-interface {v2, v3, v4}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z
     move-result v2
-    if-eqz v2, :cond_bh_adreno_skip
+    # BunnerHub Etech: the Max Adreno Clocks switch was removed from the sidebar (2026-11-20), so
+    # it is no longer re-applied here (it could not be turned off any more).
+    goto :cond_bh_adreno_skip
     const/4 v2, 0x3
     new-array v2, v2, [Ljava/lang/String;
     const/4 v3, 0x0
