@@ -816,6 +816,8 @@ Settings (per game, applied the next time the game starts):
 
 **Screenshot** (FSR tab): saves the frame being shown, at full FSR resolution and without the sidebar or on-screen controls, as a PNG in `BunnerHub-Etech/screenshots/`. Needs the upscaler loaded.
 
+**Heat control** (FSR tab): *Off* / *Balanced (keeps under 80°C)* / *Cool (keeps under 72°C)*. Every 2 s the app reads the CPU and GPU temperature; when the hotter one stays at or above the limit for 6 s, the frame cap steps down (none → 45 → 40 → 30 FPS, at most every 30 s), and when it stays 8°C under the limit for 30 s it steps back up. The layer paces frames at present (`fps_cap=` in its control file), so it needs the upscaler loaded (*report only* is enough). The performance history and test log note the cap. **Overheat warning**: a toast at 85°C or more (at most every 3 minutes), on by default, works without the layer.
+
 **Performance history** (FSR tab): every 30 s or more of play with the same settings becomes a session (average FPS, low FPS, GPU, CPU temperature, power), per game, kept in `files/bh_perf/`. The tab ranks the settings by average FPS and lists the latest sessions.
 
 **Test log:** while a game with the layer on is in the foreground, `/sdcard/BunnerHub-Etech/logs/upscaler-sessions.log` gets a header line whenever the settings change (game size, FSR output, Upscale to, sharpness, Native Rendering+) and one line every 10 s: average and lowest FPS, GPU load, power, CPU / GPU / battery temperature, charging. Use *On, report only* as the no-FSR baseline.

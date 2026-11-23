@@ -265,7 +265,8 @@ public final class BhVkLayer {
         String text = "upscale=" + (out != null ? 1 : 0) + "\n"
                 + (out != null ? "out=" + out + "\n" : "")
                 + "sharp=" + SHARP_STOPS[sharp] + "\n"
-                + "shot=" + shotCounter + "\n";
+                + "shot=" + shotCounter + "\n"
+                + "fps_cap=" + BhThermal.cap() + "\n";
         try {
             File f = controlFile(ctx);
             File tmp = new File(f.getPath() + ".tmp");

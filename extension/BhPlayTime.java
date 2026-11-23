@@ -109,6 +109,7 @@ public final class BhPlayTime {
             // (any layer mode: upscaling can be switched on while the game runs)
             if (BhVkLayer.mode(appCtx, curId) != BhVkLayer.OFF) BhVkSurfaceScale.watch(appCtx);
             BhUpscalerLog.start(appCtx, curId, curName);
+            BhThermal.start(appCtx, curId);
             lastMark = SystemClock.elapsedRealtime();
             running = true;
             if (ticker != null) ticker.cancel(false);
@@ -131,6 +132,7 @@ public final class BhPlayTime {
 
     public static synchronized void onGamePause(Activity activity) {
         BhUpscalerLog.stop();
+        BhThermal.stop();
         try {
             if (!running) return;
             running = false;

@@ -137,6 +137,7 @@ static struct {
     char note[160];            /* why upscaling is off, if it was asked for */
     unsigned shot_done;        /* last screenshot request handled (BH_VKLAYER_CONTROL shot=) */
     char shot_note[96];        /* "" or why it failed */
+    unsigned fps_cap;          /* the frame cap in force (copy of g_ctl.fps_cap) */
 } g_stat;
 
 static double now_s(void) {
@@ -154,10 +155,10 @@ static void write_status(void) {
     if (!f) return;
     fprintf(f, "layer=" LAYER_NAME "\nstep=2\napp=%s\nengine=%s\nswapchain=%ux%u\nformat=%d\n"
                "present_mode=%d\nimages=%u\nframes=%llu\nfps=%.1f\nupscale=%s\noutput=%ux%u\nsharp=%.2f\n"
-               "note=%s\nshot=%u\nshot_note=%s\ntime=%lld\n",
+               "note=%s\nshot=%u\nshot_note=%s\nfps_cap=%u\ntime=%lld\n",
             g_stat.app, g_stat.engine, g_stat.width, g_stat.height, g_stat.format, g_stat.present_mode,
             g_stat.images, (unsigned long long)g_stat.frames, g_stat.fps, g_stat.upscale ? "on" : "off",
-            g_stat.out_w, g_stat.out_h, g_stat.sharp, g_stat.note, g_stat.shot_done, g_stat.shot_note,
+            g_stat.out_w, g_stat.out_h, g_stat.sharp, g_stat.note, g_stat.shot_done, g_stat.shot_note, g_stat.fps_cap,
             (long long)time(NULL));
     fclose(f);
     rename(tmp, path);
@@ -742,6 +743,7 @@ static struct {
     unsigned out_w, out_h;
     float sharp;
     unsigned shot;
+    unsigned fps_cap; /* 0 = none; frames are paced at present (heat control) */
     double checked;
     struct timespec mtime;
     off_t size;
@@ -1188,8 +1190,10 @@ static void ctl_read_initial(void) {
         else if (sscanf(line, "out=%ux%u", &a, &b) == 2) { g_ctl.out_w = a; g_ctl.out_h = b; }
         else if (sscanf(line, "sharp=%f", &v) == 1) g_ctl.sharp = clamp_sharp(v);
         else if (sscanf(line, "shot=%u", &a) == 1) g_ctl.shot = a;
+        else if (sscanf(line, "fps_cap=%u", &a) == 1) g_ctl.fps_cap = a > 1000 ? 0 : a;
     }
     fclose(f);
+    g_stat.fps_cap = g_ctl.fps_cap;
     g_stat.shot_done = g_ctl.shot; /* requests from before this run are not ours */
 }
 
@@ -1211,7 +1215,7 @@ static void ctl_poll(double now) {
     FILE *f = fopen(path, "r");
     if (!f) return;
     int upscale = g_ctl.upscale;
-    unsigned w = g_ctl.out_w, h = g_ctl.out_h, shot = g_ctl.shot;
+    unsigned w = g_ctl.out_w, h = g_ctl.out_h, shot = g_ctl.shot, cap = g_ctl.fps_cap;
     float sharp = g_ctl.sharp;
     char line[128];
     while (fgets(line, sizeof line, f)) {
@@ -1221,8 +1225,15 @@ static void ctl_poll(double now) {
         else if (sscanf(line, "out=%ux%u", &a, &b) == 2) { w = a; h = b; }
         else if (sscanf(line, "sharp=%f", &v) == 1) sharp = clamp_sharp(v);
         else if (sscanf(line, "shot=%u", &a) == 1) shot = a;
+        else if (sscanf(line, "fps_cap=%u", &a) == 1) cap = a > 1000 ? 0 : a;
     }
     fclose(f);
+    if (cap != g_ctl.fps_cap) {
+        logf_("live: frame cap %u", cap);
+        g_ctl.fps_cap = cap;
+        g_stat.fps_cap = cap;
+        write_status();
+    }
     if (upscale != g_ctl.upscale || (upscale && (w != g_ctl.out_w || h != g_ctl.out_h))) {
         logf_("live: upscale %s, output %ux%u", upscale ? "on" : "off", w, h);
         g_ctl.upscale = upscale;
@@ -1404,6 +1415,33 @@ fail:
     return VK_NULL_HANDLE;
 }
 
+/* ── Frame cap (heat control) ────────────────────────────────────────────
+   With fps_cap=N the present call waits until 1/N s after the previous frame's slot, so the game
+   renders at most N frames a second (less heat). A late frame starts a new schedule rather than
+   rushing to catch up. Runs outside g_lock. */
+
+static double g_pace_next;
+
+static void pace(unsigned cap) {
+    if (!cap) {
+        g_pace_next = 0;
+        return;
+    }
+    double period = 1.0 / cap;
+    double now = now_s();
+    if (g_pace_next <= 0 || now - g_pace_next > period) {
+        g_pace_next = now + period; /* (re)start: this frame goes now */
+        return;
+    }
+    double wait = g_pace_next - now;
+    if (wait > 0) {
+        struct timespec ts = {(time_t)wait, (long)((wait - (time_t)wait) * 1e9)};
+        while (nanosleep(&ts, &ts) != 0) {
+        }
+    }
+    g_pace_next += period;
+}
+
 /* ── Present ────────────────────────────────────────────────────────────── */
 
 #define MAX_WAITS 16
@@ -1429,6 +1467,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
     }
     if (info->swapchainCount > 0) presented(info->pSwapchains[0]);
     ctl_poll(t);
+    unsigned cap = g_ctl.fps_cap;
 
     /* Upscale the presented images of our swapchains in one submit that waits for the game;
        a screenshot, when asked for, is copied in the same submit. */
@@ -1503,6 +1542,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
 
     if (n == 0) {
         pthread_mutex_unlock(&g_lock);
+        pace(cap);
         return next(queue, info);
     }
     /* Wait for all of the game's semaphores (heap when there are many). */
@@ -1560,6 +1600,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
     VkPresentInfoKHR pi = *info;
     pi.waitSemaphoreCount = nsig;
     pi.pWaitSemaphores = signals;
+    pace(cap); /* the GPU already has the frame; only its showing (and the game's next frame) waits */
     r = next(queue, &pi);
     if (r == VK_ERROR_OUT_OF_DATE_KHR || info->pResults) {
         pthread_mutex_lock(&g_lock);
