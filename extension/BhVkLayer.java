@@ -171,10 +171,13 @@ public final class BhVkLayer {
             int target = target(ctx, id);
             String display = mode == UPSCALE ? targetSize(ctx, target) : null;
             boolean upscale = display != null;
-            for (String k : new String[] {"BH_VKLAYER", "BH_VKLAYER_STATUS", "BH_VKLAYER_OUT", "BH_VKLAYER_SHARP"})
+            for (String k : new String[] {"BH_VKLAYER", "BH_VKLAYER_STATUS", "BH_VKLAYER_OUT", "BH_VKLAYER_SHARP",
+                    "BH_VKLAYER_CONTROL", "BH_VKLAYER_SHOT"})
                 remove(out, k);
             out.add("BH_VKLAYER=1");
             out.add("BH_VKLAYER_STATUS=" + statusFile(ctx).getAbsolutePath());
+            out.add("BH_VKLAYER_CONTROL=" + controlFile(ctx).getAbsolutePath());
+            out.add("BH_VKLAYER_SHOT=" + shotFile(ctx).getAbsolutePath());
             if (upscale) {
                 out.add("BH_VKLAYER_OUT=" + display);
                 out.add("BH_VKLAYER_SHARP=" + SHARP_STOPS[sharp]);
@@ -186,6 +189,7 @@ public final class BhVkLayer {
             appliedMode = upscale ? UPSCALE : REPORT;
             appliedSharp = sharp;
             appliedTarget = target;
+            writeControl(ctx, id);
             Log.i(TAG, "layer on for " + id + (upscale ? ", FSR to " + display + ", sharpness " + SHARP_STOPS[sharp]
                     : ", report only"));
             return out.toArray(new String[0]);
@@ -220,6 +224,70 @@ public final class BhVkLayer {
         try (OutputStream o = new FileOutputStream(f)) {
             o.write(want);
         }
+    }
+
+    // ── Live settings (read by the layer twice a second) ────────────────────
+
+    /** Screenshot requests so far this process; the layer answers each new number once. */
+    private static int shotCounter;
+
+    static File controlFile(Context ctx) {
+        return new File(ctx.getFilesDir(), "bh_vklayer_control.txt");
+    }
+
+    static File shotFile(Context ctx) {
+        return new File(ctx.getFilesDir(), "bh_vklayer_shot.raw");
+    }
+
+    /** True when the running game was started with the layer, so changes apply right away. */
+    static boolean live(String gameId) {
+        return gameId != null && gameId.equals(appliedGame);
+    }
+
+    /**
+     * Writes the game's current settings for the running layer. "Off" turns upscaling off but
+     * keeps reporting (the layer can't leave a running game).
+     */
+    static synchronized void writeControl(Context ctx, String gameId) {
+        int mode = mode(ctx, gameId);
+        int sharp = sharp(ctx, gameId);
+        int target = target(ctx, gameId);
+        String out = mode == UPSCALE ? targetSize(ctx, target) : null;
+        String text = "upscale=" + (out != null ? 1 : 0) + "\n"
+                + (out != null ? "out=" + out + "\n" : "")
+                + "sharp=" + SHARP_STOPS[sharp] + "\n"
+                + "shot=" + shotCounter + "\n";
+        try {
+            File f = controlFile(ctx);
+            File tmp = new File(f.getPath() + ".tmp");
+            try (OutputStream o = new FileOutputStream(tmp)) {
+                o.write(text.getBytes("UTF-8"));
+            }
+            if (!tmp.renameTo(f)) Log.w(TAG, "cannot write " + f);
+        } catch (Throwable t) {
+            Log.w(TAG, "cannot write the control file", t);
+        }
+        if (live(gameId)) {
+            appliedMode = out != null ? UPSCALE : REPORT;
+            appliedSharp = sharp;
+            appliedTarget = target;
+            if (out != null) BhVkSurfaceScale.watch(ctx);
+        }
+    }
+
+    /** FSR tab: a setting changed. Returns true when it applies now (no restart needed). */
+    static boolean settingsChanged(Context ctx, String gameId) {
+        if (!live(gameId)) return false;
+        writeControl(ctx, gameId);
+        return true;
+    }
+
+    /** Asks the layer for a screenshot; returns the request number, or -1 when the layer isn't running. */
+    static synchronized int requestShot(Context ctx, String gameId) {
+        if (!live(gameId)) return -1;
+        shotCounter++;
+        writeControl(ctx, gameId);
+        return shotCounter;
     }
 
     // ── Status (written by the layer) ───────────────────────────────────────

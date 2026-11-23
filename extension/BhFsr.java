@@ -24,7 +24,7 @@ public final class BhFsr {
             Context ctx = currentApp();
             String id = BhPlayTime.currentGameId();
             if (ctx == null || env == null) return env;
-            if (BhVkLayer.mode(ctx, id) != BhVkLayer.UPSCALE) BhVkSurfaceScale.reset();
+            if (BhVkLayer.mode(ctx, id) == BhVkLayer.OFF) BhVkSurfaceScale.reset();
             if (BhVkLayer.enabled(ctx, id)) env = BhVkLayer.apply(ctx, env);
         } catch (Throwable t) {
             Log.w(TAG, "layer hook failed", t);

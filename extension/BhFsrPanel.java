@@ -123,7 +123,7 @@ public final class BhFsrPanel {
                 ? "\"FSR to display\" upscales each frame from the game's resolution (set in its GameHub "
                 + "settings; set the same in the game's own options) with AMD FSR 1, instead of a plain "
                 + "stretch. Needs Performance → Native Rendering+ → Force Enable. For more FPS, lower the "
-                + "GameHub resolution. Restart the game after changing."
+                + "GameHub resolution. Changes apply right away while the game runs with the upscaler on."
                 : "This build doesn't include the upscaler.");
         layer.addView(layerHelp, margins(0, 4, 0, 0));
         layerLine = text(12, GREY, false);
@@ -132,6 +132,7 @@ public final class BhFsrPanel {
             layerToggle.setOnClickListener(v -> {
                 if (gameId == null) return;
                 BhVkLayer.setMode(ctx, gameId, (BhVkLayer.mode(ctx, gameId) + 1) % BhVkLayer.MODE_LABELS.length);
+                BhVkLayer.settingsChanged(ctx, gameId);
                 refresh();
             });
             layer.addView(layerToggle, margins(0, 10, 0, 0));
@@ -142,6 +143,7 @@ public final class BhFsrPanel {
             layerTarget.setOnClickListener(v -> {
                 if (gameId == null) return;
                 BhVkLayer.setTarget(ctx, gameId, BhVkLayer.target(ctx, gameId) + 1);
+                BhVkLayer.settingsChanged(ctx, gameId);
                 refresh();
             });
             layer.addView(layerTarget);
@@ -161,6 +163,15 @@ public final class BhFsrPanel {
             lsRow.addView(layerSharp, weightMargins(1f, 8));
             lsRow.addView(lsPlus, wrapLeft(8));
             layer.addView(lsRow);
+            Button shot = button("Screenshot", false);
+            shot.setOnClickListener(v -> {
+                if (gameId != null) BhVkScreenshot.take(ctx, gameId, BhPlayTime.currentGameName());
+            });
+            layer.addView(shot, margins(0, 12, 0, 0));
+            TextView shotHelp = text(11, GREY, false);
+            shotHelp.setText("Saves the game's picture (full FSR resolution, without the sidebar or controls) "
+                    + "to BunnerHub-Etech/screenshots.");
+            layer.addView(shotHelp, margins(0, 4, 0, 0));
         }
         layer.addView(layerLine, margins(0, 10, 0, 0));
 
@@ -192,6 +203,7 @@ public final class BhFsrPanel {
     private static void changeSharp(int delta) {
         if (gameId == null) return;
         BhVkLayer.setSharp(ctx, gameId, BhVkLayer.sharp(ctx, gameId) + delta);
+        BhVkLayer.settingsChanged(ctx, gameId);
         refresh();
     }
 
@@ -220,20 +232,30 @@ public final class BhFsrPanel {
         layerSharp.setText((sharp + 1) + " / " + BhVkLayer.SHARP_LEVELS);
         int target = BhVkLayer.target(ctx, gameId);
         layerTarget.setText(BhVkLayer.targetLabel(ctx, target));
-        boolean running = gameId != null && gameId.equals(BhVkLayer.appliedGame);
-        boolean pending = running
-                ? (mode != BhVkLayer.appliedMode || (mode == BhVkLayer.UPSCALE
-                        && (sharp != BhVkLayer.appliedSharp || target != BhVkLayer.appliedTarget)))
-                : mode != BhVkLayer.OFF;
+        // Started with the layer: every change applies live. Otherwise turning it on needs a restart.
+        boolean running = BhVkLayer.live(gameId);
+        boolean pending = !running && mode != BhVkLayer.OFF;
         String st = statusText;
         if (running && st != null) {
             boolean ok = st.startsWith("Layer: loaded") && !st.contains("upscale off");
+            if (mode == BhVkLayer.UPSCALE) {
+                Boolean direct = BhVkSurfaceScale.direct;
+                if (Boolean.FALSE.equals(direct)) {
+                    ok = false;
+                    st += "\nNative Rendering+ is off, so the picture is cropped. Set Performance → "
+                            + "Native Rendering+ → Force Enable.";
+                } else {
+                    st += "\nNative Rendering+: " + (direct == null ? "not reported yet" : "on")
+                            + " · screen fit: " + BhVkSurfaceScale.result;
+                }
+            } else if (mode == BhVkLayer.OFF) {
+                st += "\nUpscaling off. The layer stays loaded until the game closes.";
+            }
             layerLine.setTextColor(ok ? GREEN : AMBER);
-            if (mode == BhVkLayer.UPSCALE) st += "\nScreen fit: " + BhVkSurfaceScale.result;
-            layerLine.setText(pending ? st + "\nRestart the game to apply your changes." : st);
+            layerLine.setText(st);
         } else {
             layerLine.setTextColor(pending ? AMBER : GREY);
-            layerLine.setText(pending ? "Restart the game to apply your changes." : "");
+            layerLine.setText(pending ? "Restart the game to load the upscaler; after that, changes apply right away." : "");
         }
     }
 

@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #ifdef __ANDROID__
@@ -134,6 +135,8 @@ static struct {
     uint32_t out_w, out_h;     /* real swapchain size when upscaling */
     float sharp;
     char note[160];            /* why upscaling is off, if it was asked for */
+    unsigned shot_done;        /* last screenshot request handled (BH_VKLAYER_CONTROL shot=) */
+    char shot_note[96];        /* "" or why it failed */
 } g_stat;
 
 static double now_s(void) {
@@ -151,10 +154,11 @@ static void write_status(void) {
     if (!f) return;
     fprintf(f, "layer=" LAYER_NAME "\nstep=2\napp=%s\nengine=%s\nswapchain=%ux%u\nformat=%d\n"
                "present_mode=%d\nimages=%u\nframes=%llu\nfps=%.1f\nupscale=%s\noutput=%ux%u\nsharp=%.2f\n"
-               "note=%s\ntime=%lld\n",
+               "note=%s\nshot=%u\nshot_note=%s\ntime=%lld\n",
             g_stat.app, g_stat.engine, g_stat.width, g_stat.height, g_stat.format, g_stat.present_mode,
             g_stat.images, (unsigned long long)g_stat.frames, g_stat.fps, g_stat.upscale ? "on" : "off",
-            g_stat.out_w, g_stat.out_h, g_stat.sharp, g_stat.note, (long long)time(NULL));
+            g_stat.out_w, g_stat.out_h, g_stat.sharp, g_stat.note, g_stat.shot_done, g_stat.shot_note,
+            (long long)time(NULL));
     fclose(f);
     rename(tmp, path);
 }
@@ -184,7 +188,9 @@ typedef struct {
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets)          \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer)                  \
     X(EndCommandBuffer) X(CmdPipelineBarrier) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants)   \
-    X(CmdDispatch) X(CmdCopyImage) X(CreateSemaphore) X(DestroySemaphore) X(AcquireNextImageKHR)
+    X(CmdDispatch) X(CmdCopyImage) X(CreateSemaphore) X(DestroySemaphore) X(AcquireNextImageKHR)            \
+    X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(BindBufferMemory) X(MapMemory)            \
+    X(UnmapMemory) X(CmdCopyImageToBuffer) X(CreateFence) X(DestroyFence) X(GetFenceStatus)
 
 typedef struct {
 #define X(n) PFN_vk##n n;
@@ -252,6 +258,7 @@ typedef struct {
     VkSemaphore done[MAX_IMAGES];
     uint32_t con_easu[16], con_rcas[4];
     uint64_t presents;
+    int rerecord; /* sharpness changed */
 } upscaler;
 
 static upscaler *g_swapchains[MAX_SWAPCHAINS];
@@ -263,10 +270,14 @@ typedef struct {
     VkSwapchainKHR handle;
     uint32_t width, height, out_w, out_h, images;
     int format, present_mode, upscale;
+    int stale; /* settings changed: make the game recreate it */
+    int readable; /* created with TRANSFER_SRC (screenshots of a pass-through swapchain) */
     char note[160];
 } swapchain_info;
 static swapchain_info g_infos[MAX_INFOS];
 static VkSwapchainKHR g_last_presented;
+
+static int g_last_readable; /* set by bh_CreateSwapchainKHR just before remember_info */
 
 static void remember_info(VkSwapchainKHR h) { /* from g_stat, with g_lock held */
     int slot = -1;
@@ -285,6 +296,8 @@ static void remember_info(VkSwapchainKHR h) { /* from g_stat, with g_lock held *
     in->format = g_stat.format;
     in->present_mode = g_stat.present_mode;
     in->upscale = g_stat.upscale;
+    in->readable = g_last_readable;
+    in->stale = 0;
     snprintf(in->note, sizeof in->note, "%s", g_stat.note);
     g_last_presented = h; /* the newest one until another presents */
 }
@@ -693,13 +706,53 @@ static VkResult record(upscaler *u, uint32_t family) {
     return VK_SUCCESS;
 }
 
-/* BH_VKLAYER_OUT=WxH → the output size for a game swapchain of `in` (each axis up to 4x;
+/* ── Settings: from the launch environment, then live from BH_VKLAYER_CONTROL ──
+   The app rewrites the control file (tmp + rename) whenever a setting changes in the FSR tab:
+     upscale=0|1   out=WxH   sharp=<stops>   shot=<counter>
+   It is checked twice a second from present. Sharpness re-records the upscale commands; turning
+   upscaling on/off or changing the output size makes the game recreate its swapchain (the next
+   acquire returns out of date). shot= asks for a screenshot (see the screenshot section). */
+
+static void ctl_read_initial(void);
+
+static struct {
+    int ready;
+    int upscale;
+    unsigned out_w, out_h;
+    float sharp;
+    unsigned shot;
+    double checked;
+    struct timespec mtime;
+    off_t size;
+} g_ctl;
+
+static float clamp_sharp(float v) { return v < 0 ? 0 : v > 2 ? 2 : v; }
+
+static void ctl_init(void) { /* with g_lock held */
+    if (g_ctl.ready) return;
+    g_ctl.ready = 1;
+    const char *o = getenv("BH_VKLAYER_OUT");
+    unsigned w = 0, h = 0;
+    if (o && sscanf(o, "%ux%u", &w, &h) == 2 && w && h) {
+        g_ctl.upscale = 1;
+        g_ctl.out_w = w;
+        g_ctl.out_h = h;
+    }
+    const char *sh = getenv("BH_VKLAYER_SHARP");
+    g_ctl.sharp = clamp_sharp(sh && *sh ? (float)atof(sh) : 0.25f);
+    ctl_read_initial();
+}
+
+/* BH_VKLAYER_OUT / out= → the output size for a game swapchain of `in` (each axis up to 4x;
    the aspect may change: the app scales the surface back by in / out), or 0x0 for none. */
 static VkExtent2D target_size(VkExtent2D in) {
     VkExtent2D none = {0, 0};
-    const char *s = getenv("BH_VKLAYER_OUT");
-    unsigned w = 0, h = 0;
-    if (!s || sscanf(s, "%ux%u", &w, &h) != 2 || !w || !h || !in.width || !in.height) return none;
+    pthread_mutex_lock(&g_lock);
+    ctl_init();
+    int on = g_ctl.upscale;
+    unsigned w = g_ctl.out_w, h = g_ctl.out_h;
+    pthread_mutex_unlock(&g_lock);
+    if (!on || !w || !h || !in.width || !in.height) return none;
     if (in.width < 320 || in.height < 200) return none; /* a splash / helper window (e.g. 1x1), not the game */
     if (w > in.width * 4) w = in.width * 4;
     if (h > in.height * 4) h = in.height * 4;
@@ -710,10 +763,23 @@ static VkExtent2D target_size(VkExtent2D in) {
 }
 
 static float sharpness(void) {
-    const char *s = getenv("BH_VKLAYER_SHARP");
-    float v = s && *s ? (float)atof(s) : 0.25f;
-    return v < 0 ? 0 : v > 2 ? 2 : v;
+    pthread_mutex_lock(&g_lock);
+    ctl_init();
+    float v = g_ctl.sharp;
+    pthread_mutex_unlock(&g_lock);
+    return v;
 }
+
+static int upscale_wanted(void) {
+    pthread_mutex_lock(&g_lock);
+    ctl_init();
+    int v = g_ctl.upscale;
+    pthread_mutex_unlock(&g_lock);
+    return v;
+}
+
+static void ctl_poll(double now); /* below the swapchain code it changes */
+static void shot_release(void *device_entry_ptr); /* screenshots, below */
 
 /* ── Instance ───────────────────────────────────────────────────────────── */
 
@@ -822,6 +888,7 @@ static VKAPI_ATTR void VKAPI_CALL bh_DestroyDevice(VkDevice device, const VkAllo
     pthread_mutex_lock(&g_lock);
     device_entry *e = find_device(device);
     PFN_vkDestroyDevice next = e ? e->f.DestroyDevice : NULL;
+    if (e) shot_release(e); /* a screenshot still in flight */
     for (int i = 0; e && i < MAX_SWAPCHAINS; i++) {
         if (g_swapchains[i] && g_swapchains[i]->d == e) { /* left behind by the game */
             destroy_upscaler(g_swapchains[i]);
@@ -880,12 +947,14 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
     VkExtent2D target = target_size(ci->imageExtent);
     upscaler *u = NULL;
     int retired = 0; /* a create succeeded, so ci->oldSwapchain is retired now */
+    int readable = 0; /* the pass-through swapchain can be copied from (screenshots) */
     VkResult r;
+    float sharp_now = sharpness(); /* takes g_lock itself */
     pthread_mutex_lock(&g_lock);
     g_stat.note[0] = 0;
     g_stat.upscale = 0;
     g_stat.out_w = g_stat.out_h = 0;
-    g_stat.sharp = sharpness();
+    g_stat.sharp = sharp_now;
     pthread_mutex_unlock(&g_lock);
 
     if (target.width && g_upscale_disabled) {
@@ -893,7 +962,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         pthread_mutex_lock(&g_lock);
         snprintf(g_stat.note, sizeof g_stat.note, "upscale off: the game keeps having to recreate its swapchain");
         pthread_mutex_unlock(&g_lock);
-    } else if (!target.width && getenv("BH_VKLAYER_OUT") && ci->imageExtent.width >= 320 &&
+    } else if (!target.width && upscale_wanted() && ci->imageExtent.width >= 320 &&
                ci->imageExtent.height >= 200) {
         note("no upscale: the game's %ux%u is already about the display size", ci->imageExtent.width,
              ci->imageExtent.height);
@@ -966,11 +1035,23 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_CreateSwapchainKHR(VkDevice device, con
         /* Pass-through. An oldSwapchain is retired once a create succeeds, so don't pass it again. */
         VkSwapchainCreateInfoKHR plain = *ci;
         if (retired) plain.oldSwapchain = VK_NULL_HANDLE;
+        /* Readable, for screenshots, when the surface allows it. */
+        VkSurfaceCapabilitiesKHR pc;
+        memset(&pc, 0, sizeof pc);
+        if (e->inst.surface_caps && e->inst.surface_caps(e->phys, ci->surface, &pc) == VK_SUCCESS &&
+            (pc.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+            plain.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         r = e->f.CreateSwapchainKHR(device, &plain, alloc, out);
+        if (r != VK_SUCCESS && plain.imageUsage != ci->imageUsage) {
+            plain.imageUsage = ci->imageUsage;
+            r = e->f.CreateSwapchainKHR(device, &plain, alloc, out);
+        }
         if (r != VK_SUCCESS) return r;
+        readable = (plain.imageUsage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
     }
 
     pthread_mutex_lock(&g_lock);
+    g_last_readable = readable && unorm_of(ci->imageFormat) != VK_FORMAT_UNDEFINED;
     g_stat.width = ci->imageExtent.width;
     g_stat.height = ci->imageExtent.height;
     g_stat.format = ci->imageFormat;
@@ -1041,8 +1122,17 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_AcquireNextImageKHR(VkDevice device, Vk
     device_entry *e = find_device(device);
     PFN_vkAcquireNextImageKHR next = e ? e->f.AcquireNextImageKHR : NULL;
     int ours = find_upscaler(sc) != NULL;
+    int stale = 0;
+    for (int i = 0; i < MAX_INFOS; i++) {
+        if (g_infos[i].handle == sc && g_infos[i].stale) {
+            g_infos[i].stale = 0;
+            stale = 1;
+        }
+    }
     pthread_mutex_unlock(&g_lock);
     if (!next) return VK_ERROR_DEVICE_LOST;
+    /* Upscaling switched on/off or a new size: the game recreates its swapchain, which picks it up. */
+    if (stale) return VK_ERROR_OUT_OF_DATE_KHR;
     VkResult r = next(device, sc, timeout, sem, fence, index);
     if (ours && r == VK_ERROR_OUT_OF_DATE_KHR) {
         pthread_mutex_lock(&g_lock);
@@ -1050,6 +1140,239 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_AcquireNextImageKHR(VkDevice device, Vk
         pthread_mutex_unlock(&g_lock);
     }
     return ours && r == VK_SUBOPTIMAL_KHR ? VK_SUCCESS : r;
+}
+
+/* The control file as it is at start-up: its values, no changes to apply yet. With g_lock held. */
+static void ctl_read_initial(void) {
+    const char *path = getenv("BH_VKLAYER_CONTROL");
+    struct stat st;
+    if (!path || !*path || stat(path, &st) != 0) return;
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    g_ctl.mtime = st.st_mtim;
+    g_ctl.size = st.st_size;
+    char line[128];
+    while (fgets(line, sizeof line, f)) {
+        unsigned a, b;
+        float v;
+        if (sscanf(line, "upscale=%u", &a) == 1) g_ctl.upscale = a != 0;
+        else if (sscanf(line, "out=%ux%u", &a, &b) == 2) { g_ctl.out_w = a; g_ctl.out_h = b; }
+        else if (sscanf(line, "sharp=%f", &v) == 1) g_ctl.sharp = clamp_sharp(v);
+        else if (sscanf(line, "shot=%u", &a) == 1) g_ctl.shot = a;
+    }
+    fclose(f);
+    g_stat.shot_done = g_ctl.shot; /* requests from before this run are not ours */
+}
+
+static int same_mtime(struct timespec a, struct timespec b) {
+    return a.tv_sec == b.tv_sec && a.tv_nsec == b.tv_nsec;
+}
+
+/* Reads BH_VKLAYER_CONTROL when it changed (at most twice a second). With g_lock held. */
+static void ctl_poll(double now) {
+    ctl_init();
+    if (now - g_ctl.checked < 0.5) return;
+    g_ctl.checked = now;
+    const char *path = getenv("BH_VKLAYER_CONTROL");
+    struct stat st;
+    if (!path || !*path || stat(path, &st) != 0) return;
+    if (same_mtime(st.st_mtim, g_ctl.mtime) && st.st_size == g_ctl.size) return;
+    g_ctl.mtime = st.st_mtim;
+    g_ctl.size = st.st_size;
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    int upscale = g_ctl.upscale;
+    unsigned w = g_ctl.out_w, h = g_ctl.out_h, shot = g_ctl.shot;
+    float sharp = g_ctl.sharp;
+    char line[128];
+    while (fgets(line, sizeof line, f)) {
+        unsigned a, b;
+        float v;
+        if (sscanf(line, "upscale=%u", &a) == 1) upscale = a != 0;
+        else if (sscanf(line, "out=%ux%u", &a, &b) == 2) { w = a; h = b; }
+        else if (sscanf(line, "sharp=%f", &v) == 1) sharp = clamp_sharp(v);
+        else if (sscanf(line, "shot=%u", &a) == 1) shot = a;
+    }
+    fclose(f);
+    if (upscale != g_ctl.upscale || (upscale && (w != g_ctl.out_w || h != g_ctl.out_h))) {
+        logf_("live: upscale %s, output %ux%u", upscale ? "on" : "off", w, h);
+        g_ctl.upscale = upscale;
+        g_ctl.out_w = w;
+        g_ctl.out_h = h;
+        g_upscale_disabled = 0; /* a new try */
+        g_rejected = 0;
+        memset(g_created, 0, sizeof g_created);
+        for (int i = 0; i < MAX_INFOS; i++) if (g_infos[i].handle) g_infos[i].stale = 1;
+    }
+    if (sharp != g_ctl.sharp) {
+        logf_("live: sharpness %.2f", sharp);
+        g_ctl.sharp = sharp;
+        g_stat.sharp = sharp;
+        for (int i = 0; i < MAX_SWAPCHAINS; i++) {
+            upscaler *u = g_swapchains[i];
+            if (!u) continue;
+            uint32_t order = u->con_rcas[2];
+            FsrRcasCon(u->con_rcas, sharp);
+            u->con_rcas[2] = order;
+            u->rerecord = 1;
+        }
+        write_status();
+    }
+    if (shot != g_ctl.shot) logf_("live: screenshot %u asked for", shot);
+    g_ctl.shot = shot;
+}
+
+/* ── Screenshots ─────────────────────────────────────────────────────────
+   shot=<n> in the control file asks for one. At the next present the layer copies the frame being
+   shown (the FSR output when upscaling, else the swapchain image, 8-bit formats only) into a
+   host-visible buffer in the same submit, and once its fence has signalled (a later present)
+   writes BH_VKLAYER_SHOT: "BHS1", width, height, channel order (0 RGBA, 1 BGRA) as 32-bit
+   little-endian values, then the pixels; then status shot=<n>. The app turns it into a PNG. */
+
+static struct {
+    int busy;
+    unsigned req;
+    device_entry *d;
+    VkCommandPool pool;
+    VkCommandBuffer cb;
+    VkBuffer buf;
+    VkDeviceMemory mem;
+    VkFence fence;
+    VkSemaphore sem;
+    uint32_t w, h, bgra;
+} g_shot;
+
+static void shot_free(void) { /* with g_lock held */
+    device_entry *d = g_shot.d;
+    if (d) {
+        VkDevice dev = d->device;
+        if (g_shot.pool) d->f.DestroyCommandPool(dev, g_shot.pool, NULL);
+        if (g_shot.buf) d->f.DestroyBuffer(dev, g_shot.buf, NULL);
+        if (g_shot.mem) d->f.FreeMemory(dev, g_shot.mem, NULL);
+        if (g_shot.fence) d->f.DestroyFence(dev, g_shot.fence, NULL);
+        if (g_shot.sem) d->f.DestroySemaphore(dev, g_shot.sem, NULL);
+    }
+    memset(&g_shot, 0, sizeof g_shot);
+}
+
+static void shot_release(void *p) { /* the device is going away; with g_lock held */
+    device_entry *e = (device_entry *)p;
+    if (!g_shot.d || g_shot.d != e) return;
+    e->f.DeviceWaitIdle(e->device);
+    shot_free();
+}
+
+static void shot_finish(unsigned req, const char *why) { /* with g_lock held */
+    g_stat.shot_done = req;
+    snprintf(g_stat.shot_note, sizeof g_stat.shot_note, "%s", why ? why : "");
+    if (why) logf_("screenshot %u: %s", req, why);
+    write_status();
+}
+
+/* A capture submitted earlier: write it out once the GPU is done. With g_lock held. */
+static void shot_poll(void) {
+    if (!g_shot.busy) return;
+    device_entry *d = g_shot.d;
+    if (d->f.GetFenceStatus(d->device, g_shot.fence) != VK_SUCCESS) return;
+    unsigned req = g_shot.req;
+    const char *why = NULL;
+    void *px = NULL;
+    const char *path = getenv("BH_VKLAYER_SHOT");
+    if (!path || !*path) why = "no BH_VKLAYER_SHOT";
+    else if (d->f.MapMemory(d->device, g_shot.mem, 0, VK_WHOLE_SIZE, 0, &px) != VK_SUCCESS) why = "map failed";
+    else {
+        char tmp[1024];
+        snprintf(tmp, sizeof tmp, "%s.tmp", path);
+        FILE *f = fopen(tmp, "wb");
+        if (!f) why = "cannot write the file";
+        else {
+            uint32_t head[4] = {0x31534842u /* "BHS1" */, g_shot.w, g_shot.h, g_shot.bgra};
+            size_t n = (size_t)g_shot.w * g_shot.h * 4;
+            int ok = fwrite(head, sizeof head, 1, f) == 1 && fwrite(px, 1, n, f) == n;
+            ok = fclose(f) == 0 && ok;
+            if (!ok || rename(tmp, path) != 0) why = "cannot write the file";
+            else logf_("screenshot %u: %ux%u", req, g_shot.w, g_shot.h);
+        }
+        d->f.UnmapMemory(d->device, g_shot.mem);
+    }
+    shot_free();
+    shot_finish(req, why);
+}
+
+/* Prepares a capture of `src` (in `layout`, restored after) into a new buffer; records the
+   command buffer. With g_lock held. Returns NULL (and answers the request) on failure. */
+static VkCommandBuffer shot_begin(device_entry *d, uint32_t family, unsigned req, VkImage src,
+                                  VkImageLayout layout, uint32_t w, uint32_t h, uint32_t bgra) {
+    const char *why = NULL;
+    VkDevice dev = d->device;
+    g_shot.d = d;
+    g_shot.req = req;
+    g_shot.w = w;
+    g_shot.h = h;
+    g_shot.bgra = bgra;
+    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bci.size = (VkDeviceSize)w * h * 4;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VkMemoryRequirements req_mem;
+    VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    VkCommandPoolCreateInfo cpci = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    cpci.queueFamilyIndex = family;
+    VkCommandBufferAllocateInfo cbai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    VkFenceCreateInfo fci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkSemaphoreCreateInfo semci = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    int type;
+    if (d->f.CreateBuffer(dev, &bci, NULL, &g_shot.buf) != VK_SUCCESS) { why = "no buffer"; goto fail; }
+    d->f.GetBufferMemoryRequirements(dev, g_shot.buf, &req_mem);
+    type = memory_type(d, req_mem.memoryTypeBits,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (type < 0) { why = "no host memory"; goto fail; }
+    mai.allocationSize = req_mem.size;
+    mai.memoryTypeIndex = (uint32_t)type;
+    if (d->f.AllocateMemory(dev, &mai, NULL, &g_shot.mem) != VK_SUCCESS ||
+        d->f.BindBufferMemory(dev, g_shot.buf, g_shot.mem, 0) != VK_SUCCESS) { why = "no memory"; goto fail; }
+    if (d->f.CreateCommandPool(dev, &cpci, NULL, &g_shot.pool) != VK_SUCCESS) { why = "no command pool"; goto fail; }
+    cbai.commandPool = g_shot.pool;
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    if (d->f.AllocateCommandBuffers(dev, &cbai, &g_shot.cb) != VK_SUCCESS) { why = "no command buffer"; goto fail; }
+    if (d->set_loader_data) d->set_loader_data(dev, g_shot.cb);
+    else *(void **)g_shot.cb = *(void **)dev;
+    if (d->f.CreateFence(dev, &fci, NULL, &g_shot.fence) != VK_SUCCESS ||
+        d->f.CreateSemaphore(dev, &semci, NULL, &g_shot.sem) != VK_SUCCESS) { why = "no fence"; goto fail; }
+
+    VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (d->f.BeginCommandBuffer(g_shot.cb, &bi) != VK_SUCCESS) { why = "cannot record"; goto fail; }
+    VkImageMemoryBarrier b;
+    image_barrier(&b, src, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, layout,
+                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    d->f.CmdPipelineBarrier(g_shot.cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL,
+                            0, NULL, 1, &b);
+    VkBufferImageCopy region;
+    memset(&region, 0, sizeof region);
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent.width = w;
+    region.imageExtent.height = h;
+    region.imageExtent.depth = 1;
+    d->f.CmdCopyImageToBuffer(g_shot.cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_shot.buf, 1, &region);
+    image_barrier(&b, src, VK_ACCESS_TRANSFER_READ_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout);
+    VkBufferMemoryBarrier bb = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    bb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    bb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    bb.srcQueueFamilyIndex = bb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bb.buffer = g_shot.buf;
+    bb.size = VK_WHOLE_SIZE;
+    d->f.CmdPipelineBarrier(g_shot.cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 1, &bb, 1,
+                            &b);
+    if (d->f.EndCommandBuffer(g_shot.cb) != VK_SUCCESS) { why = "cannot record"; goto fail; }
+    g_shot.busy = 1;
+    return g_shot.cb;
+fail:
+    shot_free();
+    shot_finish(req, why);
+    return VK_NULL_HANDLE;
 }
 
 /* ── Present ────────────────────────────────────────────────────────────── */
@@ -1076,17 +1399,22 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
         return VK_ERROR_DEVICE_LOST;
     }
     if (info->swapchainCount > 0) presented(info->pSwapchains[0]);
+    ctl_poll(t);
 
-    /* Upscale the presented images of our swapchains in one submit that waits for the game. */
-    VkCommandBuffer cmds[MAX_SWAPCHAINS];
-    VkSemaphore signals[MAX_SWAPCHAINS];
-    uint32_t n = 0;
+    /* Upscale the presented images of our swapchains in one submit that waits for the game;
+       a screenshot, when asked for, is copied in the same submit. */
+    VkCommandBuffer cmds[MAX_SWAPCHAINS + 1];
+    VkSemaphore signals[MAX_SWAPCHAINS + 1];
+    uint32_t n = 0, nsig = 0, nups = 0;
     uint32_t family = queue_family(e, queue);
+    upscaler *first = NULL;
+    uint32_t first_idx = 0;
     for (uint32_t k = 0; k < info->swapchainCount && n < MAX_SWAPCHAINS; k++) {
         upscaler *u = find_upscaler(info->pSwapchains[k]);
         uint32_t idx = info->pImageIndices[k];
         if (!u || idx >= u->count) continue;
-        if (!u->pool || u->pool_family != family) {
+        if (!u->pool || u->pool_family != family || u->rerecord) {
+            u->rerecord = 0;
             VkResult rr = record(u, family);
             if (rr != VK_SUCCESS) {
                 logf_("recording the upscale commands failed (%d)", (int)rr);
@@ -1094,10 +1422,49 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
             }
         }
         u->presents++;
+        if (!first) {
+            first = u;
+            first_idx = idx;
+        }
         cmds[n] = u->cmd[idx];
-        signals[n] = u->done[idx];
+        signals[nsig++] = u->done[idx];
         n++;
+        nups++;
     }
+
+    shot_poll();
+    VkFence fence = VK_NULL_HANDLE;
+    if (!g_shot.busy && g_ctl.shot != g_stat.shot_done && info->swapchainCount > 0) {
+        unsigned req = g_ctl.shot;
+        VkCommandBuffer cb = VK_NULL_HANDLE;
+        if (first) {
+            /* The FSR output (B, left in TRANSFER_SRC by the upscale commands). */
+            (void)first_idx;
+            cb = shot_begin(e, family, req, first->b, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, first->out.width,
+                            first->out.height, first->con_rcas[2]);
+        } else {
+            VkSwapchainKHR sc = info->pSwapchains[0];
+            uint32_t idx = info->pImageIndices[0];
+            swapchain_info *in = NULL;
+            for (int i = 0; i < MAX_INFOS; i++) if (g_infos[i].handle == sc) in = &g_infos[i];
+            VkImage imgs[MAX_IMAGES];
+            uint32_t count = MAX_IMAGES;
+            if (!in || !in->readable) {
+                shot_finish(req, "this game's frames can't be copied");
+            } else if (e->f.GetSwapchainImagesKHR(e->device, sc, &count, imgs) < 0 || idx >= count) {
+                shot_finish(req, "no swapchain images");
+            } else {
+                cb = shot_begin(e, family, req, imgs[idx], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, in->width, in->height,
+                                unorm_of((VkFormat)in->format) == VK_FORMAT_B8G8R8A8_UNORM);
+            }
+        }
+        if (cb) {
+            cmds[n++] = cb;
+            fence = g_shot.fence;
+            if (nsig == 0) signals[nsig++] = g_shot.sem; /* nothing else to wait for at present */
+        }
+    }
+
     if (n == 0) {
         pthread_mutex_unlock(&g_lock);
         return next(queue, info);
@@ -1111,15 +1478,24 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
     si.pWaitDstStageMask = stages;
     si.commandBufferCount = n;
     si.pCommandBuffers = cmds;
-    si.signalSemaphoreCount = n;
+    si.signalSemaphoreCount = nsig;
     si.pSignalSemaphores = signals;
     PFN_vkQueueSubmit submit = e->f.QueueSubmit;
     pthread_mutex_unlock(&g_lock);
 
-    VkResult r = submit(queue, 1, &si, VK_NULL_HANDLE);
-    if (r != VK_SUCCESS) return r;
+    VkResult r = submit(queue, 1, &si, fence);
+    if (r != VK_SUCCESS) {
+        if (fence) {
+            pthread_mutex_lock(&g_lock);
+            unsigned req = g_shot.req;
+            shot_free();
+            shot_finish(req, "submit failed");
+            pthread_mutex_unlock(&g_lock);
+        }
+        return r;
+    }
     VkPresentInfoKHR pi = *info;
-    pi.waitSemaphoreCount = n;
+    pi.waitSemaphoreCount = nsig;
     pi.pWaitSemaphores = signals;
     r = next(queue, &pi);
     if (r == VK_ERROR_OUT_OF_DATE_KHR || info->pResults) {
@@ -1130,7 +1506,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const Vk
         }
         pthread_mutex_unlock(&g_lock);
     }
-    if (r == VK_SUBOPTIMAL_KHR && n == info->swapchainCount) r = VK_SUCCESS;
+    if (r == VK_SUBOPTIMAL_KHR && nups == info->swapchainCount) r = VK_SUCCESS;
     if (info->pResults)
         for (uint32_t k = 0; k < info->swapchainCount; k++)
             if (info->pResults[k] == VK_SUBOPTIMAL_KHR) {
