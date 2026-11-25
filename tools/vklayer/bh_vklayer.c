@@ -33,7 +33,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <time.h>
 
 #ifdef __ANDROID__
@@ -139,7 +138,6 @@ static struct {
     unsigned shot_done;        /* last screenshot request handled (BH_VKLAYER_CONTROL shot=) */
     char shot_note[96];        /* "" or why it failed */
     unsigned fps_cap;          /* the frame cap in force (copy of g_ctl.fps_cap) */
-    char stuck[128];           /* watchdog: "" or where a present has been stuck */
 } g_stat;
 
 static double now_s(void) {
@@ -157,10 +155,10 @@ static void write_status(void) {
     if (!f) return;
     fprintf(f, "layer=" LAYER_NAME "\nstep=2\napp=%s\nengine=%s\nswapchain=%ux%u\nformat=%d\n"
                "present_mode=%d\nimages=%u\nframes=%llu\nfps=%.1f\nupscale=%s\noutput=%ux%u\nsharp=%.2f\n"
-               "note=%s\nshot=%u\nshot_note=%s\nfps_cap=%u\nstuck=%s\ntime=%lld\n",
+               "note=%s\nshot=%u\nshot_note=%s\nfps_cap=%u\ntime=%lld\n",
             g_stat.app, g_stat.engine, g_stat.width, g_stat.height, g_stat.format, g_stat.present_mode,
             g_stat.images, (unsigned long long)g_stat.frames, g_stat.fps, g_stat.upscale ? "on" : "off",
-            g_stat.out_w, g_stat.out_h, g_stat.sharp, g_stat.note, g_stat.shot_done, g_stat.shot_note, g_stat.fps_cap, g_stat.stuck,
+            g_stat.out_w, g_stat.out_h, g_stat.sharp, g_stat.note, g_stat.shot_done, g_stat.shot_note, g_stat.fps_cap,
             (long long)time(NULL));
     fclose(f);
     rename(tmp, path);
@@ -1444,70 +1442,11 @@ static void pace(unsigned cap) {
     g_pace_next += period;
 }
 
-/* ── Watchdog ────────────────────────────────────────────────────────────
-   Records where vkQueuePresentKHR is, so a freeze can be told apart: stuck in the layer (its lock,
-   a fence, the submit, the frame cap), in the driver's present, or in the game itself (not calling
-   present at all). A thread checks every second and, after 3 s, writes it as stuck= in the status
-   file and the log; cleared when frames come again. */
-
-enum { ST_IDLE, ST_LAYER, ST_FENCE, ST_SUBMIT, ST_PACE, ST_DRIVER };
-static const char *const ST_NAMES[] = {"game", "layer bookkeeping (its lock)", "layer fence wait",
-                                       "layer submit (driver)", "frame cap wait", "driver present"};
-static volatile int g_stage;
-static volatile double g_stage_since, g_last_present;
-static pthread_once_t g_watch_once = PTHREAD_ONCE_INIT;
-
-static void stage(int st) {
-    g_stage_since = now_s();
-    g_stage = st;
-    if (st == ST_IDLE) g_last_present = g_stage_since;
-}
-
-static void *watch_thread(void *arg) {
-    (void)arg;
-    char last[128] = "";
-    for (;;) {
-        sleep(1);
-        double now = now_s();
-        int st = g_stage;
-        char msg[128] = "";
-        if (st != ST_IDLE && now - g_stage_since > 3)
-            snprintf(msg, sizeof msg, "in %s for %.0f s", ST_NAMES[st], now - g_stage_since);
-        else if (st == ST_IDLE && g_last_present > 0 && now - g_last_present > 3)
-            snprintf(msg, sizeof msg, "no present from the game for %.0f s (not in the layer)", now - g_last_present);
-        if (!strcmp(msg, last) && !msg[0]) continue;
-        int locked = pthread_mutex_trylock(&g_lock) == 0;
-        snprintf(g_stat.stuck, sizeof g_stat.stuck, "%s", msg);
-        write_status(); /* without the lock if a stuck present holds it: a rare torn line at worst */
-        if (locked) pthread_mutex_unlock(&g_lock);
-        /* log the start of a stall (and its end), not every second */
-        if (msg[0] && !last[0]) logf_("watchdog: %s", msg);
-        if (!msg[0] && last[0]) logf_("watchdog: frames again (was %s)", last);
-        snprintf(last, sizeof last, "%s", msg);
-    }
-    return NULL;
-}
-
-static void start_watchdog(void) {
-    pthread_t th;
-    if (pthread_create(&th, NULL, watch_thread, NULL) == 0) pthread_detach(th);
-}
-
 /* ── Present ────────────────────────────────────────────────────────────── */
 
 #define MAX_WAITS 16
 
-static VkResult bh_present(VkQueue queue, const VkPresentInfoKHR *info);
-
 static VKAPI_ATTR VkResult VKAPI_CALL bh_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info) {
-    pthread_once(&g_watch_once, start_watchdog);
-    stage(ST_LAYER);
-    VkResult res = bh_present(queue, info);
-    stage(ST_IDLE);
-    return res;
-}
-
-static VkResult bh_present(VkQueue queue, const VkPresentInfoKHR *info) {
     pthread_mutex_lock(&g_lock);
     device_entry *e = find_device(queue); /* a queue shares its device's dispatch */
     PFN_vkQueuePresentKHR next = e ? e->f.QueuePresentKHR : NULL;
@@ -1603,9 +1542,7 @@ static VkResult bh_present(VkQueue queue, const VkPresentInfoKHR *info) {
 
     if (n == 0) {
         pthread_mutex_unlock(&g_lock);
-        stage(ST_PACE);
         pace(cap);
-        stage(ST_DRIVER);
         return next(queue, info);
     }
     /* Wait for all of the game's semaphores (heap when there are many). */
@@ -1623,9 +1560,7 @@ static VkResult bh_present(VkQueue queue, const VkPresentInfoKHR *info) {
     if (first) {
         up_fence = first->fence[first_idx];
         if (first->fence_used[first_idx]) {
-            stage(ST_FENCE);
             e->f.WaitForFences(e->device, 1, &up_fence, VK_TRUE, 2000000000ull); /* done long ago */
-            stage(ST_LAYER);
         }
         e->f.ResetFences(e->device, 1, &up_fence);
         first->fence_used[first_idx] = 1;
@@ -1649,7 +1584,6 @@ static VkResult bh_present(VkQueue queue, const VkPresentInfoKHR *info) {
     PFN_vkQueueSubmit submit = e->f.QueueSubmit;
     pthread_mutex_unlock(&g_lock);
 
-    stage(ST_SUBMIT);
     VkResult r = submit(queue, 1, &si[0], nups ? up_fence : fence);
     if (r == VK_SUCCESS && second) r = submit(queue, 1, &si[1], fence);
     if (stages != stage_buf) free(stages);
@@ -1666,11 +1600,8 @@ static VkResult bh_present(VkQueue queue, const VkPresentInfoKHR *info) {
     VkPresentInfoKHR pi = *info;
     pi.waitSemaphoreCount = nsig;
     pi.pWaitSemaphores = signals;
-    stage(ST_PACE);
     pace(cap); /* the GPU already has the frame; only its showing (and the game's next frame) waits */
-    stage(ST_DRIVER);
     r = next(queue, &pi);
-    stage(ST_LAYER);
     if (r == VK_ERROR_OUT_OF_DATE_KHR || info->pResults) {
         pthread_mutex_lock(&g_lock);
         for (uint32_t k = 0; k < info->swapchainCount; k++) {

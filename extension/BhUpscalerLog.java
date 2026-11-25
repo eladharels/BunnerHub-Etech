@@ -143,9 +143,7 @@ final class BhUpscalerLog {
                         minFps == Double.MAX_VALUE ? avg : Math.min(minFps, avg)));
                 if (avg >= 1) BhPerfHistory.sample(ctx, id, shortSettings(st), avg, gpuAvg, cpuT, gpuT, powerAvg, charging);
             } else {
-                String stuck = st.get("stuck");
-                b.append("fps   (game not drawing")
-                        .append(stuck != null && !stuck.isEmpty() ? ": " + stuck : "").append(")     ");
+                b.append("fps   (game not drawing)     ");
             }
             b.append("  gpu ").append(gpuAvg >= 0 ? gpuAvg + "%" : "?");
             b.append(String.format(Locale.US, "  power %s", powerCount > 0
