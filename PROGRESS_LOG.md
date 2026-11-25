@@ -4,6 +4,10 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [revert] — Heat control and overheat warning removed (2026-11-25)
+- With the heat control build (`237f74f`, plus the present watchdog `a37773c`) Prototype 2 froze for good several times (2026-11-23 and 2026-11-25). The freezes kept happening with the upscaler off, Native Rendering+ off and a 30 FPS cap, with the FLiNG trainer on (infinite health, infinite power). The build from before heat control (`main` at `4f48147`, rebuilt as run 71) did not freeze with the same setup and trainer.
+- Elad chose to drop the feature: both commits reverted, so the code is the same as `4f48147`. The cause wasn't found. With the layer off, heat control only read thermal zones / kgsl from the app every 2 s and showed a toast at 85°C.
+
 ### [fix] — Fixes from a full code review (2026-11-23)
 - Device-tested 2026-11-23 (Prototype 2): live settings work (sharpness 5→1→5→2, report only ↔ FSR, Upscale to Display → 1920x1080 → 1600x900 → 1280x720 cycled in-game, about a 1 s hitch per swapchain rebuild); Screenshot works; automatic save backup made after playing ("23 Nov 2026, 12:02 · automatic", checkbox shown). Merged to main. Performance history card also shows on the device (Prototype 2: 4 settings ranked, latest sessions with FPS / GPU / CPU °C / W).
 - Review of everything since `3da51bc` (upscaler, menu cleanup, test log, live settings, screenshots, save backups, history); 10 findings, all fixed:
