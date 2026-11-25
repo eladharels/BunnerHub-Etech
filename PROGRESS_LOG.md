@@ -4,12 +4,6 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
-### [feat] — Heat control and overheat warning (2026-11-23)
-- Every test log showed 60 FPS for a minute or two, then thermal throttling to 25–35. Elad picked the thermal auto-limiter and the overheat warning.
-- Layer: `fps_cap=N` in the control file (read at start and live); `pace()` before the real present waits until 1/N s after the previous frame's slot (a late frame restarts the schedule; outside g_lock); status `fps_cap=`. Checked locally: vkcube uncapped ~1200 FPS → 45.0 → 30.0 → uncapped, switched live.
-- `BhSensors`: the test log's readers (GPU load, power, charging, CPU/GPU/battery temperature) moved into a shared class.
-- `BhThermal` (:wine, with BhPlayTime resume/pause): every 2 s the hotter of CPU/GPU; mode Balanced 80°C / Cool 72°C; ≥ limit for 6 s → cap steps none → 45 → 40 → 30 (≥ 30 s apart); ≤ limit − 8 for 30 s → one step back up per 30 s; Off removes the cap at once; a new game starts uncapped. `BhVkLayer.writeControl` adds `fps_cap=`. Warning toast at ≥ 85°C, every 3 min at most, on by default. FSR tab "Heat control" card (mode, warning on/off, "Now 78°C · frame cap 45 FPS"). History settings label and test-log header include the cap. Checked with a simulated heat curve (steps down while hot, holds between, steps up when cool, off clears).
-
 ### [fix] — Fixes from a full code review (2026-11-23)
 - Device-tested 2026-11-23 (Prototype 2): live settings work (sharpness 5→1→5→2, report only ↔ FSR, Upscale to Display → 1920x1080 → 1600x900 → 1280x720 cycled in-game, about a 1 s hitch per swapchain rebuild); Screenshot works; automatic save backup made after playing ("23 Nov 2026, 12:02 · automatic", checkbox shown). Merged to main. Performance history card also shows on the device (Prototype 2: 4 settings ranked, latest sessions with FPS / GPU / CPU °C / W).
 - Review of everything since `3da51bc` (upscaler, menu cleanup, test log, live settings, screenshots, save backups, history); 10 findings, all fixed:

@@ -48,8 +48,7 @@ public final class BhFsrPanel {
     private static String gameId;
     private static TextView gameLine, renderValue, outputValue, displayValue, layerLine, historyText;
     private static long historyLoaded;
-    private static Button layerToggle, layerSharp, layerTarget, heatMode, heatWarn;
-    private static TextView heatLine;
+    private static Button layerToggle, layerSharp, layerTarget;
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService io = Executors.newSingleThreadExecutor();
     private static volatile Map<String, String> status = new HashMap<>();
@@ -178,32 +177,6 @@ public final class BhFsrPanel {
         }
         layer.addView(layerLine, margins(0, 10, 0, 0));
 
-        // ── Heat control ──
-        LinearLayout heat = card();
-        root.addView(heat, margins(0, 12, 0, 0));
-        TextView heatTitle = text(14, WHITE, true);
-        heatTitle.setText("Heat control");
-        heat.addView(heatTitle);
-        TextView heatHelp = text(11, GREY, false);
-        heatHelp.setText("Lowers the frame cap (45 → 40 → 30 FPS) when the phone gets hot and raises it again as it "
-                + "cools, so it doesn't throttle hard. Uses the upscaler's layer (\"report only\" is enough). "
-                + "The warning works on its own.");
-        heat.addView(heatHelp, margins(0, 4, 0, 0));
-        heatMode = button("", false);
-        heatMode.setOnClickListener(v -> {
-            BhThermal.setMode(ctx, (BhThermal.mode(ctx) + 1) % BhThermal.MODE_LABELS.length);
-            refresh();
-        });
-        heat.addView(heatMode, margins(0, 10, 0, 0));
-        heatWarn = button("", false);
-        heatWarn.setOnClickListener(v -> {
-            BhThermal.setWarnEnabled(ctx, !BhThermal.warnEnabled(ctx));
-            refresh();
-        });
-        heat.addView(heatWarn, margins(0, 8, 0, 0));
-        heatLine = text(12, GREY, false);
-        heat.addView(heatLine, margins(0, 8, 0, 0));
-
         // ── Performance history ──
         LinearLayout hist = card();
         root.addView(hist, margins(0, 12, 0, 0));
@@ -235,8 +208,7 @@ public final class BhFsrPanel {
         ui.removeCallbacks(refresher);
         ctx = null;
         gameLine = renderValue = outputValue = displayValue = layerLine = historyText = null;
-        layerToggle = layerSharp = layerTarget = heatMode = heatWarn = null;
-        heatLine = null;
+        layerToggle = layerSharp = layerTarget = null;
         status = new HashMap<>();
         statusText = null;
     }
@@ -279,14 +251,6 @@ public final class BhFsrPanel {
             outputValue.setText(disp != null ? size(disp) + " (plain stretch)" : "—");
         }
         displayValue.setText(disp != null ? size(disp) : "—");
-
-        if (heatMode != null) {
-            int hm = BhThermal.mode(ctx);
-            heatMode.setText("Heat control: " + BhThermal.MODE_LABELS[hm]);
-            heatWarn.setText("Overheat warning: " + (BhThermal.warnEnabled(ctx) ? "On" : "Off"));
-            heatLine.setText(BhThermal.statusLine(ctx, gameId));
-            heatLine.setTextColor(hm != BhThermal.OFF && BhThermal.cap() > 0 ? AMBER : GREY);
-        }
 
         if (layerToggle == null) return;
         int mode = BhVkLayer.mode(ctx, gameId);
