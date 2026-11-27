@@ -65,7 +65,7 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ### [cleanup] — In-game sidebar: Wine FSR and root-only toggles removed (2026-11-20)
 - Elad asked to remove in-game options we won't use; chose the Wine FSR section and the root-only toggles (kept: Konkr HUD, RTS controls, Task manager, AI Frame Generation, Dual Battery Mode).
-- FSR tab: the Wine fullscreen-hack FSR (on/off, strength, render-size mode, Wine support check, DXVK render-size reader) is gone; his Wine build reported "no FSR", and the BunnerHub upscaler works with any Wine. `BhFsr` is now only the launch hook for the layer; `BhWineLog` no longer captures `fsr-*.log`. The tab is **Resolution now** (game renders at: the layer's swapchain report or the Wine screen size; reaches the screen at: FSR output or plain stretch; display) and the **BunnerHub upscaler** card.
+- FSR tab: the Wine fullscreen-hack FSR (on/off, strength, render-size mode, Wine support check, DXVK render-size reader) is gone; Elad's Wine build reported "no FSR", and the BunnerHub upscaler works with any Wine. `BhFsr` is now only the launch hook for the layer; `BhWineLog` no longer captures `fsr-*.log`. The tab is **Resolution now** (game renders at: the layer's swapchain report or the Wine screen size; reaches the screen at: FSR output or plain stretch; display) and the **BunnerHub upscaler** card.
 - Performance tab: **Sustained Performance Mode** and **Max Adreno Clocks** rows hidden (`visibility="gone"` in `winemu_sidebar_hub_type_fragment.xml`; `BhPerfSetupDelegate` still finds them, harmless). Sustained Performance stays in Settings → Advanced.
 
 ### [feat] — Own Vulkan layer, step 2: FSR 1 upscaling to the display (2026-11-20)

@@ -113,7 +113,7 @@ Built 2026-11-23 (frame cap 45 → 40 → 30 FPS when the phone stays hot, toast
 
 ## 12. AI frame generation ☑ (upstream)
 
-Already in the app from upstream BannerHub: Performance tab → AI Frame Generation (GameHub's `libGameScopeVK`, 2x). Elad confirmed it works on his phone (2026-11-27). Not yet tried together with our FSR layer. Our own frame generation in the layer is not needed while this works.
+Already in the app from upstream BannerHub: Performance tab → AI Frame Generation (GameHub's `libGameScopeVK`, 2x). Elad confirmed it works on their phone (2026-11-27). Not yet tried together with our FSR layer. Our own frame generation in the layer is not needed while this works.
 
 ---
 
