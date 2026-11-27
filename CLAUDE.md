@@ -71,13 +71,13 @@ A log from the wrong game or the wrong day is common: check the launch command a
 
 1. **Prototype 2 freezes for good** after a while (game stays frozen until restarted). Not caused by our layer, heat control, Native Rendering+ or the frame rate. Suspects: the FLiNG trainer (infinite health / infinite power patch game code under FEX), the game itself, or its Wine/driver/DXVK settings. Next: set `err+all,+seh` in **Prototype 2's own** Wine Debug Parameters (it has none, so no Wine log was ever written), play with the trainer off, collect the log from a freeze. Also ask whether sound continues and the sidebar opens during the freeze. A newer Turnip driver is also worth a try.
 2. **BioShock (2007) hangs on its splash screen** after DXVK's "Process set as DPI aware". Suggested and not yet reported back: "Disable Graphics Enhancement Plugin" (ReShade is on, `ENABLE_RESHADE=1`), another DXVK version or WineD3D, another Wine build.
-3. **Phone access from an agent:** Elad plans a session from their PC (Claude app with Remote Control, phone on adb) so an agent can read logcat and logs directly. The PC "Elad-pc" was listed but did not offer folders to cloud sessions (likely needs a Claude app update). For app-private files use a debuggable build (`debuggable: true`).
+3. **Phone access from an agent:** Elad plans a session from his PC (Claude app with Remote Control, phone on adb) so an agent can read logcat and logs directly. His PC "Elad-pc" was listed but did not offer folders to cloud sessions (likely needs a Claude app update). For app-private files use a debuggable build (`debuggable: true`).
 
 See `docs/ROADMAP.md` for the full list and later ideas.
 
 ## Working with Elad
 
-- Plain, short language. Elad is not a programmer; explain what to tap and what to send back. Numbered test steps, one variable at a time.
+- Elad is a man (he/him). Plain, short language. He is not a programmer; explain what to tap and what to send back. Numbered test steps, one variable at a time.
 - When a build is ready, send **the download link**.
 - Elad tests on the device and reports; record device results in `PROGRESS_LOG.md` and `docs/ROADMAP.md`.
 - Ask before big or outward-facing steps; Elad decides which features to build ("Do 1 and 2").
