@@ -1,6 +1,6 @@
 # BunnerHub Etech roadmap
 
-Started 2026-10-26. Ordered by value: each item came out of a real debugging session (Prototype, Sleeping Dogs, the Play Time crash). Status: ☐ not started · ◐ in progress · ☑ done.
+Started 2026-10-26. Ordered by value: each item came out of a real debugging session (Prototype, Sleeping Dogs, the Play Time crash). Status: ☐ not started · ◐ in progress · ☑ done · ☒ removed.
 
 ---
 
@@ -64,7 +64,9 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 **Plan:** a Trainer panel in the in-game sidebar: exact-value scan (4-byte int first; float, 2-byte, 1-byte, double), "next scan" to narrow, set value, freeze (rewrite every ~100 ms), named per-game entries. Single-player only; addresses may move between launches.
 
-## 7. FSR upscaling ◐
+## 7. FSR upscaling ☑
+
+**Status (2026-11-27):** done and device-tested. The FSR tab is our own Vulkan layer: FSR 1 from the game's resolution to the display or 1920x1080 / 1600x900 / 1280x720, 5 sharpness levels, live settings (no restart), screenshot button, upscaler test log and a per-game performance history card (sections 9–10). Full screen needs Native Rendering+ → Force Enable in the game's settings. Measured: FSR costs about 5 FPS in GTA IV; GPU-bound games (Sleeping Dogs) gain more from a lower render resolution; phone heat limits long sessions. The history below is how it got there.
 
 **2026-11-20:** the Wine FSR option (v1 below) was removed from the FSR tab; the tab is now the BunnerHub upscaler (own Vulkan layer, below). **2026-11-21: the upscaler works on the device** (GTA IV, 1280x720 → 2340x1080 with FSR 1, full screen; needs Native Rendering+ → Force Enable). Next: compare FPS/quality at lower resolutions and "Upscale to" targets; maybe frame generation (FidelityFX) later.
 
@@ -96,3 +98,34 @@ Started 2026-10-26. Ordered by value: each item came out of a real debugging ses
 
 - **Make the work branch `main`.** `main` holds only "Initial commit", so this replaces it.
 - **Own signing key** as a GitHub secret instead of the public test key. Android refuses to update an app signed with a different key: switching means uninstalling once and losing the app's data unless it is backed up first.
+
+## 9. Live upscaler settings, screenshots, automatic save backup ☑
+
+**Status (2026-11-23):** done and device-tested in Prototype 2. Upscaler settings (on/off, Upscale to, sharpness) change while the game runs; Screenshot saves a PNG of the shown frame to `/sdcard/BunnerHub-Etech/screenshots/`; saves are backed up automatically when the game closes (last 3 kept, apart from the 5 manual backups; checkbox in the Saves dialog). Merged to `main`.
+
+## 10. Performance history ☑
+
+**Status (2026-11-23):** done and device-tested. FSR tab card ranks the settings tried per game by average FPS (with low FPS, GPU %, temperatures, power) and lists the latest sessions. Recorded only while the upscaler layer is on (Report only is enough).
+
+## 11. Heat control and overheat warning ☒ removed
+
+Built 2026-11-23 (frame cap 45 → 40 → 30 FPS when the phone stays hot, toast at 85°C), removed 2026-11-25 at Elad's request: Prototype 2 froze with it, and one clean run on the build without it looked like proof. Later runs showed the old build freezes too, so it was not the cause, but Elad chose to leave it out. Don't re-add unless asked (code: commits `237f74f`, `a37773c`, reverted in `d089298`, `6523703`).
+
+## 12. AI frame generation ☑ (upstream)
+
+Already in the app from upstream BannerHub: Performance tab → AI Frame Generation (GameHub's `libGameScopeVK`, 2x). Elad confirmed it works on his phone (2026-11-27). Not yet tried together with our FSR layer. Our own frame generation in the layer is not needed while this works.
+
+---
+
+## Open problems
+
+1. **Prototype 2 freezes for good** after some play (stays frozen until restarted). Ruled out: our layer (also freezes with the upscaler off), Native Rendering+, frame rate (30 FPS cap), heat control. Left: the FLiNG trainer (infinite health, infinite power), the game, or its Wine/DXVK/driver settings. No Wine log exists yet because Prototype 2's Wine Debug Parameters are empty. Next: `err+all,+seh` in Prototype 2's settings, trainer off, log from a freeze; note whether sound continues and the sidebar opens. Try a newer Turnip driver.
+2. **BioShock (2007) hangs on the splash screen** after DXVK "Process set as DPI aware" (`-dx9`, DXVK 2.3.1 gplasync, turnip). To try: Disable Graphics Enhancement Plugin (ReShade on), another DXVK or WineD3D, another Wine.
+3. **Agent access to the phone:** planned from Elad's PC (Claude app Remote Control + adb), so logs and logcat can be read directly instead of sent by hand.
+
+## Ideas, not started
+
+- Trainer: Cheat Engine Auto Assembler scripts (needs an x86 assembler and a test of whether patched x86 code takes effect under FEX).
+- Play Time: test export/import on the device.
+- Upscaler: Snapdragon GSR as an alternative to FSR 1; test with AI Frame Generation on; OptiScaler per game for games with DLSS/FSR 2 inputs.
+- Known fixes: add entries as games get fixed (Prototype 2 and BioShock once solved).

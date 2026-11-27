@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [docs] — Guide for agents, roadmap brought up to date (2026-11-27)
+- `CLAUDE.md` (loaded automatically by Claude Code; `AGENTS.md` points to it for other agents): what the repo is, where things are, building and getting the APK link, testing locally and the phone's log files, what has been built, open problems, how Elad works, conventions.
+- `docs/ROADMAP.md`: FSR upscaling marked done; new sections for live settings / screenshots / auto backup, performance history, heat control (removed) and AI frame generation (upstream, confirmed working on Elad's phone 2026-11-27); open problems (Prototype 2 freeze, BioShock splash hang, agent access to the phone) and ideas.
+- README's top note links the three files.
+
 ### [revert] — Heat control and overheat warning removed (2026-11-25)
 - With the heat control build (`237f74f`, plus the present watchdog `a37773c`) Prototype 2 froze for good several times (2026-11-23 and 2026-11-25). The freezes kept happening with the upscaler off, Native Rendering+ off and a 30 FPS cap, with the FLiNG trainer on (infinite health, infinite power). The build from before heat control (`main` at `4f48147`, rebuilt as run 71) did not freeze with the same setup and trainer.
 - Elad chose to drop the feature: both commits reverted, so the code is the same as `4f48147`. The cause wasn't found. With the layer off, heat control only read thermal zones / kgsl from the app every 2 s and showed a toast at 85°C.

@@ -5,6 +5,8 @@
 # BunnerHub Etech
 
 > A personal fork of [BannerHub](https://github.com/The412Banner/bannerhub) by The412Banner. The rest of this README is upstream's and still describes BannerHub.
+>
+> What this fork adds, how it is built and what is planned: [`CLAUDE.md`](CLAUDE.md) (overview), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`PROGRESS_LOG.md`](PROGRESS_LOG.md).
 
 <p align="center">
   <a href="https://discord.gg/n8S4G2WZQ4"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white&style=for-the-badge" alt="Join the The412Banner Discord"/></a>
