@@ -115,6 +115,10 @@ Built 2026-11-23 (frame cap 45 → 40 → 30 FPS when the phone stays hot, toast
 
 Already in the app from upstream BannerHub: Performance tab → AI Frame Generation (GameHub's `libGameScopeVK`, 2x). Elad confirmed it works on his phone (2026-11-27). Not yet tried together with our FSR layer. Our own frame generation in the layer is not needed while this works.
 
+## 13. Redesign of our screens ◐
+
+**Status (2026-11-28):** built, not yet device-tested. FSR tab, Trainer tab (Cheats / Search / Saved) and Saves dialog redesigned from the mockups, with shared controls in `extension/BhUi.java` (selectors, switches, snackbar, pressed/focus states, haptics). To test: every control in the three screens, controller navigation, Native Rendering+ **Turn on**, screenshot **Share**, restore from the dialog.
+
 ---
 
 ## Open problems

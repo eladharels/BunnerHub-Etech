@@ -37,10 +37,21 @@ final class BhVkScreenshot {
 
     private BhVkScreenshot() {}
 
+    /** Called on the main thread with the result; {@code png} is the saved file, or null if none. */
+    interface Done {
+        void result(String message, File png);
+    }
+
     static void take(Context ctx, String gameId, String gameName) {
+        take(ctx, gameId, gameName, null);
+    }
+
+    /** Takes a screenshot; reports through {@code done}, or as toasts when it is null. */
+    static void take(Context ctx, String gameId, String gameName, Done done) {
         Context app = ctx.getApplicationContext();
         if (!BhVkLayer.live(gameId)) {
-            toast(app, "Screenshots need the upscaler loaded: set it to \"report only\" or FSR and restart the game.");
+            report(app, done, "Screenshots need the upscaler loaded: set it to Report only or FSR and restart the game.",
+                    null);
             return;
         }
         if (!busy.compareAndSet(false, true)) return; // one at a time: they share the layer's file
@@ -50,22 +61,55 @@ final class BhVkScreenshot {
             busy.set(false);
             return;
         }
-        toast(app, "Taking a screenshot…");
+        if (done == null) toast(app, "Taking a screenshot…");
         new Thread(() -> {
             String msg;
+            File[] saved = new File[1];
             try {
-                msg = waitAndSave(app, req, gameName != null ? gameName : gameId);
+                msg = waitAndSave(app, req, gameName != null ? gameName : gameId, saved);
             } catch (Throwable t) {
                 Log.w(TAG, "screenshot failed", t);
                 msg = "Screenshot failed: " + t.getMessage();
             } finally {
                 busy.set(false);
             }
-            toast(app, msg);
+            report(app, done, msg, saved[0]);
         }, "BhVkScreenshot").start();
     }
 
-    private static String waitAndSave(Context app, int req, String name) throws Exception {
+    private static void report(Context app, Done done, String msg, File png) {
+        if (done == null) toast(app, msg);
+        else new Handler(Looper.getMainLooper()).post(() -> done.result(msg, png));
+    }
+
+    /** Opens Android's share sheet for a saved screenshot (through the app's FileProvider). */
+    static void share(Context ctx, File png) {
+        try {
+            File dir = new File(ctx.getExternalCacheDir(), "share");
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("cannot create " + dir);
+            File copy = new File(dir, png.getName());
+            try (FileInputStream in = new FileInputStream(png); FileOutputStream out = new FileOutputStream(copy)) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            android.net.Uri uri = (android.net.Uri) Class.forName("androidx.core.content.FileProvider")
+                    .getMethod("getUriForFile", Context.class, String.class, File.class)
+                    .invoke(null, ctx, ctx.getPackageName() + ".provider", copy);
+            android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            send.setType("image/png");
+            send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+            send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            android.content.Intent chooser = android.content.Intent.createChooser(send, "Share screenshot");
+            if (!(ctx instanceof android.app.Activity)) chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
+        } catch (Throwable t) {
+            Log.w(TAG, "share failed", t);
+            toast(ctx.getApplicationContext(), "Share failed. The file is in BunnerHub-Etech/screenshots.");
+        }
+    }
+
+    private static String waitAndSave(Context app, int req, String name, File[] saved) throws Exception {
         long end = System.currentTimeMillis() + WAIT_MS;
         Map<String, String> st;
         while (true) {
@@ -118,6 +162,7 @@ final class BhVkScreenshot {
         } catch (Throwable ignored) {
         }
         Log.i(TAG, "saved " + out + " (" + w + "x" + h + ")");
+        saved[0] = out;
         return "Screenshot saved (" + w + "x" + h + "): BunnerHub-Etech/screenshots/" + out.getName();
     }
 

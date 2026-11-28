@@ -2,65 +2,59 @@ package app.revanced.extension.gamehub;
 
 import android.app.AlertDialog;
 import android.content.Context;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.StateListDrawable;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.util.List;
 import java.util.Locale;
 
 /**
  * BhTrainerPanel — the Trainer page of the in-game sidebar (WineActivity
- * drawer, tab id sidebar_trainer). Built in code; the smali
+ * drawer, tab id sidebar_trainer). Built in code with {@link BhUi}; the smali
  * BhTrainerFragment (patches/smali_classes16) only calls {@link #create},
  * {@link #onShown} and {@link #onHidden}. Memory work is in {@link BhTrainer}.
  *
- * Search: type a value and New search; change the value in the game, type
- * the new one and Next search; repeat until a few results are left. Tap a
- * result to set it or save it under a name. Saved values can be set, frozen
- * (kept at a value) and deleted, and come back for the same game.
+ * Three sections, the last one used is remembered:
+ * - Cheats: the trainer program (a ready-made trainer .exe run in the game's
+ *   Wine) with a switch per cheat that presses its keys, and the cheat table
+ *   (Cheat Engine .CT) with its value cheats.
+ * - Search: the guided Health finder, and search by number (type a value, New
+ *   search; change it in the game, type the new one, Next; repeat).
+ * - Saved: values saved from a search, each with a freeze switch.
  */
 public final class BhTrainerPanel {
 
-    private static final int WHITE = 0xFFFAFAFA;
-    private static final int GREY = 0xFF9DA0A6;
-    private static final int CARD = 0x14FFFFFF;
-    private static final int ACCENT = 0xFF6C63FF;
     private static final int SHOWN_RESULTS = 50;
     private static final int LOCK_ALL_MAX = 10;
+    private static final int CHEATS = 0, SEARCH = 1, SAVED = 2;
+    private static final BhTrainer.Type[] MAIN_TYPES = {BhTrainer.Type.INT32, BhTrainer.Type.FLOAT,
+            BhTrainer.Type.INT16, BhTrainer.Type.BYTE};
 
     private static Context ctx;
+    private static FrameLayout host;
+    private static LinearLayout[] pages;
+    private static BhUi.Segmented tabs, typeSeg;
     private static EditText valueInput;
-    private static Button typeButton, nextButton, finderType, lockAll;
-    private static LinearLayout tableBox, programBox;
+    private static Button nextButton, finderType, lockAll;
+    private static LinearLayout tableBox, programBox, finderBody;
     private static TextView programStatus;
     private static Button programStartStop, programMono;
     private static boolean programChecking, programBusy, programRefocus;
-
-    private static View firstFocusable(android.view.ViewGroup g) {
-        for (int i = 0; i < g.getChildCount(); i++) {
-            View c = g.getChildAt(i);
-            if (c.isFocusable() && c.isEnabled() && c instanceof Button) return c;
-            if (c instanceof android.view.ViewGroup) {
-                View f = firstFocusable((android.view.ViewGroup) c);
-                if (f != null) return f;
-            }
-        }
-        return null;
-    }
     private static boolean tableReading, tableLoading;
     private static final java.util.concurrent.ExecutorService io =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -88,163 +82,34 @@ public final class BhTrainerPanel {
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(20), dp(20), dp(24));
+        root.setPadding(dp(20), dp(16), dp(20), dp(72)); // room for a snackbar
         scroll.addView(root);
 
-        TextView title = text(18, WHITE, true);
+        // ── Header: title, game, sections ──
+        LinearLayout header = BhUi.row(ctx);
+        LinearLayout titles = new LinearLayout(ctx);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        TextView title = BhUi.text(ctx, 18, BhUi.WHITE, true);
         title.setText("Trainer");
-        root.addView(title);
-        gameLine = text(12, GREY, false);
-        root.addView(gameLine, margins(0, 2, 0, 12));
+        titles.addView(title);
+        gameLine = BhUi.text(ctx, 12, BhUi.GREY, false);
+        gameLine.setSingleLine(true);
+        gameLine.setEllipsize(TextUtils.TruncateAt.END);
+        titles.addView(gameLine);
+        header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        tabs = new BhUi.Segmented(ctx, new String[]{"Cheats", "Search", "Saved"}, BhTrainerPanel::showPage);
+        header.addView(tabs.view, BhUi.next(ctx, 10));
+        root.addView(header);
 
-        // ── Trainer program (a ready-made trainer .exe run in the game's Wine) ──
-        LinearLayout program = card();
-        root.addView(program);
-        TextView programTitle = text(14, WHITE, true);
-        programTitle.setText("Trainer program");
-        program.addView(programTitle);
-        programBox = new LinearLayout(ctx);
-        programBox.setOrientation(LinearLayout.VERTICAL);
-        program.addView(programBox, margins(0, 6, 0, 0));
-
-        // ── Cheat table (Cheat Engine .CT) ──
-        LinearLayout table = card();
-        root.addView(table, margins(0, 12, 0, 0));
-        TextView tableTitle = text(14, WHITE, true);
-        tableTitle.setText("Cheat table");
-        table.addView(tableTitle);
-        tableBox = new LinearLayout(ctx);
-        tableBox.setOrientation(LinearLayout.VERTICAL);
-        table.addView(tableBox, margins(0, 6, 0, 0));
-
-        // ── Health finder: unknown value + lost / gained / same ──
-        LinearLayout finder = card();
-        root.addView(finder, margins(0, 12, 0, 0));
-        TextView finderTitle = text(14, WHITE, true);
-        finderTitle.setText("Health finder");
-        finder.addView(finderTitle);
-        TextView finderHelp = text(11, GREY, false);
-        finderHelp.setText("For health bars and other values with no number on screen. "
-                + "Tap Start, then tell it each time your health goes down or up.");
-        finder.addView(finderHelp, margins(0, 2, 0, 8));
-        LinearLayout startRow = new LinearLayout(ctx);
-        Button start = button("Start", true);
-        start.setOnClickListener(v -> runScan(BhTrainer.Scan.UNKNOWN, false, true));
-        finderType = button("", false);
-        finderType.setOnClickListener(v -> {
-            BhTrainer.Type next = BhTrainer.type() == BhTrainer.Type.FLOAT ? BhTrainer.Type.INT32 : BhTrainer.Type.FLOAT;
-            if (busy || !BhTrainer.setType(next)) {
-                toast("Wait for the search to finish");
-                return;
-            }
-            updateTypeLabels();
-            showResults();
-        });
-        startRow.addView(start, new LinearLayout.LayoutParams(0, -2, 1f));
-        startRow.addView(finderType, wrapLeft(8));
-        finder.addView(startRow);
-        compareButtons.clear();
-        LinearLayout lostRow = new LinearLayout(ctx);
-        Button lost = bigButton("I lost health ↓");
-        lost.setOnClickListener(v -> runGuided(BhTrainer.Scan.DECREASED));
-        Button gained = bigButton("I gained health ↑");
-        gained.setOnClickListener(v -> runGuided(BhTrainer.Scan.INCREASED));
-        lostRow.addView(lost, new LinearLayout.LayoutParams(0, -2, 1f));
-        lostRow.addView(gained, weightMargins(1f, 8));
-        finder.addView(lostRow, margins(0, 8, 0, 0));
-        Button same = button("Health didn't change", false);
-        same.setOnClickListener(v -> runScan(BhTrainer.Scan.UNCHANGED, true, true));
-        finder.addView(same, margins(0, 8, 0, 0));
-        compareButtons.add(lost);
-        compareButtons.add(gained);
-        compareButtons.add(same);
-
-        // ── Search by number ──
-        LinearLayout search = card();
-        root.addView(search, margins(0, 12, 0, 0));
-        TextView searchTitle = text(14, WHITE, true);
-        searchTitle.setText("Search by number");
-        search.addView(searchTitle);
-
-        LinearLayout inputRow = new LinearLayout(ctx);
-        inputRow.setGravity(Gravity.CENTER_VERTICAL);
-        valueInput = new EditText(ctx);
-        valueInput.setHint("Value, e.g. 1250");
-        valueInput.setHintTextColor(0x66FFFFFF);
-        valueInput.setTextColor(WHITE);
-        valueInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        valueInput.setSingleLine(true);
-        valueInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_SIGNED
-                | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        valueInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
-        valueInput.setBackground(rounded(0x22FFFFFF, 8));
-        valueInput.setPadding(dp(12), dp(8), dp(12), dp(8));
-        inputRow.addView(valueInput, new LinearLayout.LayoutParams(0, -2, 1f));
-        typeButton = button("", false);
-        typeButton.setOnClickListener(v -> cycleType());
-        inputRow.addView(typeButton, wrapLeft(8));
-        search.addView(inputRow, margins(0, 6, 0, 0));
-
-        LinearLayout buttons = new LinearLayout(ctx);
-        Button first = button("New search", true);
-        first.setOnClickListener(v -> runScan(BhTrainer.Scan.EXACT, false));
-        nextButton = button("Next search", true);
-        nextButton.setOnClickListener(v -> runScan(BhTrainer.Scan.EXACT, true));
-        Button reset = button("Reset", false);
-        reset.setOnClickListener(v -> {
-            if (busy || !BhTrainer.clearResults()) {
-                toast("Wait for the search to finish");
-                return;
-            }
-            showResults();
-        });
-        buttons.addView(first, new LinearLayout.LayoutParams(0, -2, 1f));
-        buttons.addView(nextButton, weightMargins(1f, 8));
-        buttons.addView(reset, wrapLeft(8));
-        search.addView(buttons, margins(0, 10, 0, 0));
-        // Compared with the last search (no number needed), for any kind of value.
-        search.addView(compareRow(BhTrainer.Scan.DECREASED, "Decreased", BhTrainer.Scan.INCREASED, "Increased"),
-                margins(0, 8, 0, 0));
-        search.addView(compareRow(BhTrainer.Scan.CHANGED, "Changed", BhTrainer.Scan.UNCHANGED, "Unchanged"),
-                margins(0, 8, 0, 0));
-
-        // ── Results (both kinds of search) ──
-        LinearLayout res = card();
-        root.addView(res, margins(0, 12, 0, 0));
-        status = text(12, GREY, false);
-        res.addView(status);
-        resultsBox = new LinearLayout(ctx);
-        resultsBox.setOrientation(LinearLayout.VERTICAL);
-        res.addView(resultsBox, margins(0, 6, 0, 0));
-        lockAll = button("Lock all at current value", true);
-        lockAll.setOnClickListener(v -> lockAllResults());
-        res.addView(lockAll, margins(0, 8, 0, 0));
-
-        // ── Saved values ──
-        TextView savedTitle = text(14, WHITE, true);
-        savedTitle.setText("Saved values");
-        root.addView(savedTitle, margins(0, 18, 0, 6));
-        savedBox = new LinearLayout(ctx);
-        savedBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(savedBox);
-
-        TextView help = text(11, GREY, false);
-        help.setText("Cheat table: tap Find online (FearLess Revolution, searched for this game; sign in once, "
-                + "then tap a table's download link and it imports by itself), or put a .CT file in Download "
-                + "and tap Import file. Then tap a cheat to set or freeze it. Pick a table for your game's "
-                + "version. Value cheats work; script cheats are not supported yet.\n"
-                + "Health finder: heal to full, tap Start, then each time you lose or gain health tap the "
-                + "matching button (it also drops values that keep changing by themselves). When 10 or fewer "
-                + "are left, heal to full and tap Lock all. Nothing found? Switch Float / 4 bytes and Start again. "
-                + "If your health regenerates or drains by itself (poison, an animated bar), wait until it "
-                + "stops before tapping.\n"
-                + "Search by number: type a value you see (e.g. your XP), New search; change it in the game, "
-                + "type the new value, Next search; repeat. Tap a result to set or save it.\n"
-                + "Start saves a copy of the game's memory (a few hundred MB of app storage) until the "
-                + "results are narrowed down or you tap Reset.\n"
-                + "Saved addresses can change after the game restarts; search again if a value stops working.\n"
-                + "Single-player games only.");
-        root.addView(help, margins(0, 18, 0, 0));
+        pages = new LinearLayout[3];
+        for (int i = 0; i < pages.length; i++) {
+            pages[i] = new LinearLayout(ctx);
+            pages[i].setOrientation(LinearLayout.VERTICAL);
+            root.addView(pages[i], BhUi.below(ctx, 14));
+        }
+        buildCheats(pages[CHEATS]);
+        buildSearch(pages[SEARCH]);
+        buildSaved(pages[SAVED]);
 
         tableLoading = true;
         io.execute(() -> {
@@ -263,7 +128,17 @@ public final class BhTrainerPanel {
         showTable();
         showResults();
         showSaved();
-        return scroll;
+
+        host = BhUi.host(ctx, scroll);
+        int page = prefs().getInt("page", -1);
+        if (page < 0) {
+            String id = BhPlayTime.currentGameId();
+            page = id != null && BhTrainerProgram.exe(ctx, id) != null ? CHEATS
+                    : !BhTrainer.entries().isEmpty() ? SAVED : CHEATS;
+        }
+        tabs.select(page);
+        showPage(page);
+        return host;
     }
 
     /** BhTrainerFragment.onResume. */
@@ -277,35 +152,187 @@ public final class BhTrainerPanel {
         ui.removeCallbacks(refresher);
     }
 
+    private static SharedPreferences prefs() {
+        return ctx.getSharedPreferences("bh_trainer_ui", Context.MODE_PRIVATE);
+    }
+
+    private static void showPage(int page) {
+        for (int i = 0; i < pages.length; i++) pages[i].setVisibility(i == page ? View.VISIBLE : View.GONE);
+        prefs().edit().putInt("page", page).apply();
+        refreshValues();
+    }
+
+    // ── Cheats section ───────────────────────────────────────────────────────
+
+    private static void buildCheats(LinearLayout page) {
+        programBox = new LinearLayout(ctx);
+        programBox.setOrientation(LinearLayout.VERTICAL);
+        page.addView(programBox);
+
+        TextView tableTitle = sectionTitle("Cheat table");
+        page.addView(tableTitle, BhUi.below(ctx, 20));
+        tableBox = new LinearLayout(ctx);
+        tableBox.setOrientation(LinearLayout.VERTICAL);
+        page.addView(tableBox, BhUi.below(ctx, 6));
+        page.addView(note("Find online opens FearLess Revolution searched for this game (sign in once, then tap a "
+                + "table's download link), or put a .CT file in Download and tap Import file. Pick a table for "
+                + "your game's version. Value cheats work; script cheats are not supported yet. Single-player games "
+                + "only."), BhUi.below(ctx, 10));
+    }
+
+    // ── Search section ───────────────────────────────────────────────────────
+
+    private static void buildSearch(LinearLayout page) {
+        // Search by number
+        LinearLayout inputRow = BhUi.row(ctx);
+        valueInput = new EditText(ctx);
+        valueInput.setHint("Value, e.g. 1250");
+        valueInput.setHintTextColor(0x80FFFFFF);
+        valueInput.setTextColor(BhUi.WHITE);
+        valueInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        valueInput.setSingleLine(true);
+        valueInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_SIGNED
+                | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        valueInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        valueInput.setBackground(BhUi.states(ctx, BhUi.WELL, BhUi.LINE, 12));
+        valueInput.setPadding(dp(14), 0, dp(14), 0);
+        valueInput.setContentDescription("Value to find");
+        valueInput.setOnEditorActionListener((v, action, ev) -> {
+            if (action != EditorInfo.IME_ACTION_SEARCH) return false;
+            runScan(BhTrainer.Scan.EXACT, BhTrainer.scanned() && BhTrainer.resultCount() > 0);
+            return true;
+        });
+        inputRow.addView(valueInput, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        Button first = BhUi.button(ctx, "New search", BhUi.PRIMARY);
+        BhUi.onTap(first, () -> runScan(BhTrainer.Scan.EXACT, false));
+        inputRow.addView(first, BhUi.next(ctx, 8));
+        nextButton = BhUi.button(ctx, "Next", BhUi.SECONDARY);
+        BhUi.onTap(nextButton, () -> runScan(BhTrainer.Scan.EXACT, true));
+        inputRow.addView(nextButton, BhUi.next(ctx, 8));
+        page.addView(inputRow);
+
+        LinearLayout typeRow = BhUi.row(ctx);
+        typeSeg = new BhUi.Segmented(ctx, new String[]{"4 bytes", "Float", "2 bytes", "1 byte", "More"}, i -> {
+            if (i < MAIN_TYPES.length) {
+                setType(MAIN_TYPES[i]);
+            } else {
+                String[] more = {BhTrainer.Type.DOUBLE.label, BhTrainer.Type.INT64.label};
+                new AlertDialog.Builder(ctx).setTitle("Value type")
+                        .setItems(more, (d, w) -> setType(w == 0 ? BhTrainer.Type.DOUBLE : BhTrainer.Type.INT64))
+                        .setOnDismissListener(d -> updateTypeLabels())
+                        .show();
+            }
+        });
+        typeRow.addView(typeSeg.view);
+        Button reset = BhUi.button(ctx, "Reset", BhUi.QUIET);
+        BhUi.onTap(reset, () -> {
+            if (busy || !BhTrainer.clearResults()) {
+                toast("Wait for the search to finish");
+                return;
+            }
+            showResults();
+        });
+        typeRow.addView(reset, BhUi.next(ctx, 4));
+        page.addView(typeRow, BhUi.below(ctx, 8));
+
+        // Compared with the last search (no number needed), for any kind of value.
+        page.addView(compareRow(BhTrainer.Scan.DECREASED, "Decreased", BhTrainer.Scan.INCREASED, "Increased",
+                BhTrainer.Scan.CHANGED, "Changed", BhTrainer.Scan.UNCHANGED, "Same"), BhUi.below(ctx, 8));
+
+        // Results (both kinds of search)
+        status = BhUi.text(ctx, 13, BhUi.SOFT, false);
+        page.addView(status, BhUi.below(ctx, 12));
+        resultsBox = new LinearLayout(ctx);
+        resultsBox.setOrientation(LinearLayout.VERTICAL);
+        page.addView(resultsBox, BhUi.below(ctx, 4));
+        lockAll = BhUi.button(ctx, "Lock all at current value", BhUi.PRIMARY);
+        BhUi.onTap(lockAll, BhTrainerPanel::lockAllResults);
+        page.addView(lockAll, BhUi.below(ctx, 8));
+
+        // Health finder: unknown value + lost / gained / same, folded away until opened
+        page.addView(BhUi.linkRow(ctx, "Health bar with no number?", "Guided finder: Start, then tell it when "
+                + "health goes down or up", () -> finderBody.setVisibility(
+                finderBody.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)), BhUi.below(ctx, 14));
+        finderBody = BhUi.card(ctx);
+        finderBody.setVisibility(View.GONE);
+        finderBody.addView(note("1. Heal to full, tap Start.  2. Each time you lose or gain health, tap the matching "
+                + "button (it also drops values that change by themselves).  3. When 10 or fewer are left, heal to "
+                + "full and tap Lock all. Nothing found? Switch Float / 4 bytes and Start again. If health "
+                + "regenerates or drains by itself, wait until it stops before tapping."));
+        LinearLayout startRow = BhUi.row(ctx);
+        Button start = BhUi.button(ctx, "Start", BhUi.PRIMARY);
+        BhUi.onTap(start, () -> runScan(BhTrainer.Scan.UNKNOWN, false, true));
+        startRow.addView(start, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        finderType = BhUi.button(ctx, "", BhUi.SECONDARY);
+        BhUi.onTap(finderType, () -> setType(BhTrainer.type() == BhTrainer.Type.FLOAT
+                ? BhTrainer.Type.INT32 : BhTrainer.Type.FLOAT));
+        startRow.addView(finderType, BhUi.next(ctx, 8));
+        finderBody.addView(startRow, BhUi.below(ctx, 10));
+        compareButtons.clear();
+        LinearLayout lostRow = BhUi.row(ctx);
+        Button lost = BhUi.button(ctx, "I lost health ↓", BhUi.SECONDARY);
+        BhUi.onTap(lost, () -> runGuided(BhTrainer.Scan.DECREASED));
+        Button gained = BhUi.button(ctx, "I gained health ↑", BhUi.SECONDARY);
+        BhUi.onTap(gained, () -> runGuided(BhTrainer.Scan.INCREASED));
+        lostRow.addView(lost, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        lostRow.addView(gained, BhUi.fill(ctx, 8));
+        finderBody.addView(lostRow, BhUi.below(ctx, 8));
+        Button same = BhUi.button(ctx, "Health didn't change", BhUi.SECONDARY);
+        BhUi.onTap(same, () -> runScan(BhTrainer.Scan.UNCHANGED, true, true));
+        finderBody.addView(same, BhUi.below(ctx, 8));
+        compareButtons.add(lost);
+        compareButtons.add(gained);
+        compareButtons.add(same);
+        page.addView(finderBody, BhUi.below(ctx, 8));
+
+        page.addView(note("New search saves a copy of the game's memory (a few hundred MB of app storage) until "
+                + "the results are narrowed down or you tap Reset. Saved addresses can change after the game "
+                + "restarts; search again if a value stops working."), BhUi.below(ctx, 12));
+    }
+
+    // ── Saved section ────────────────────────────────────────────────────────
+
+    private static void buildSaved(LinearLayout page) {
+        savedBox = new LinearLayout(ctx);
+        savedBox.setOrientation(LinearLayout.VERTICAL);
+        page.addView(savedBox);
+        page.addView(note("Switch on = frozen at its value (rewritten 10 times a second). Tap a value to change "
+                + "or delete it."), BhUi.below(ctx, 10));
+    }
+
     // ── Actions ──────────────────────────────────────────────────────────────
 
-    private static void cycleType() {
-        BhTrainer.Type[] all = BhTrainer.Type.values();
-        BhTrainer.Type next = all[(BhTrainer.type().ordinal() + 1) % all.length];
-        if (busy || !BhTrainer.setType(next)) {
+    private static void setType(BhTrainer.Type t) {
+        if (busy || !BhTrainer.setType(t)) {
             toast("Wait for the search to finish");
-            return;
         }
         updateTypeLabels();
         showResults();
     }
 
-    private static LinearLayout compareRow(BhTrainer.Scan a, String aLabel, BhTrainer.Scan b, String bLabel) {
-        LinearLayout row = new LinearLayout(ctx);
-        Button ba = button(aLabel, false);
-        ba.setOnClickListener(v -> runScan(a, true));
-        Button bb = button(bLabel, false);
-        bb.setOnClickListener(v -> runScan(b, true));
-        row.addView(ba, new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(bb, weightMargins(1f, 8));
-        compareButtons.add(ba);
-        compareButtons.add(bb);
+    private static LinearLayout compareRow(Object... scansAndLabels) {
+        LinearLayout row = BhUi.row(ctx);
+        for (int i = 0; i < scansAndLabels.length; i += 2) {
+            BhTrainer.Scan scan = (BhTrainer.Scan) scansAndLabels[i];
+            Button b = BhUi.button(ctx, (String) scansAndLabels[i + 1], BhUi.SECONDARY);
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            b.setPadding(dp(8), 0, dp(8), 0);
+            BhUi.onTap(b, () -> runScan(scan, true));
+            row.addView(b, i == 0 ? new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    : BhUi.fill(ctx, 6));
+            compareButtons.add(b);
+        }
         return row;
     }
 
     private static void updateTypeLabels() {
         BhTrainer.Type t = BhTrainer.type();
-        if (typeButton != null) typeButton.setText(t.label);
+        if (typeSeg != null) {
+            int idx = MAIN_TYPES.length;
+            for (int i = 0; i < MAIN_TYPES.length; i++) if (MAIN_TYPES[i] == t) idx = i;
+            typeSeg.items[MAIN_TYPES.length].setText(idx == MAIN_TYPES.length ? t.label : "More");
+            typeSeg.select(idx);
+        }
         if (finderType != null) finderType.setText(t == BhTrainer.Type.INT32 ? "4 bytes" : t.label);
     }
 
@@ -376,10 +403,37 @@ public final class BhTrainerPanel {
             BhTrainer.setFrozen(e, true, now);
             locked++;
         }
-        toast(locked == 0 ? "Already locked (see Saved values)" : "Locked " + locked + (locked == 1 ? " value" : " values")
-                + ". If the game acts strangely, unfreeze the extra ones in Saved values.");
+        snackToSaved(locked == 0 ? "Already locked" : "Locked " + locked + (locked == 1 ? " value" : " values")
+                + ". If the game acts strangely, unfreeze the extra ones.");
         lockAll.setVisibility(View.GONE);
         showSaved();
+    }
+
+    /** One result: save it and freeze it at its current value. */
+    private static void lockOne(long addr, BhTrainer.Type t) {
+        for (BhTrainer.Entry e : BhTrainer.entries()) {
+            if (e.address == addr && e.type == t) {
+                snackToSaved("Already saved");
+                return;
+            }
+        }
+        Double now = BhTrainer.read(addr, t);
+        if (now == null) {
+            toast("Can't read this value right now");
+            return;
+        }
+        BhTrainer.Entry e = BhTrainer.addEntry(ctx.getApplicationContext(), "Value " + (BhTrainer.entries().size() + 1),
+                addr, t);
+        BhTrainer.setFrozen(e, true, now);
+        showSaved();
+        snackToSaved("Locked at " + BhTrainer.format(now, t));
+    }
+
+    private static void snackToSaved(String msg) {
+        BhUi.snack(host, msg, "View", () -> {
+            tabs.select(SAVED);
+            showPage(SAVED);
+        });
     }
 
     // ── Trainer program ──────────────────────────────────────────────────────
@@ -397,112 +451,130 @@ public final class BhTrainerPanel {
         programBox.removeAllViews();
         programStatus = null;
         programStartStop = null;
+        programMono = null;
         String id = BhPlayTime.currentGameId();
         if (id == null) {
-            TextView none = text(12, GREY, false);
-            none.setText("No game running.");
-            programBox.addView(none);
+            programBox.addView(note("No game running."));
             return;
         }
         java.io.File exe = BhTrainerProgram.exe(ctx, id);
         if (exe == null) {
-            TextView none = text(12, GREY, false);
-            none.setText("No trainer for this game yet. Find online opens a trainer site searched for this game: "
-                    + "tap its download link once, and from then on it starts with the game.");
-            programBox.addView(none);
-            LinearLayout row = new LinearLayout(ctx);
-            Button find = button("Find online", true);
-            find.setOnClickListener(v -> programFindOnline());
-            Button file = button("Use a file", false);
-            file.setOnClickListener(v -> programPickFile());
-            row.addView(find, new LinearLayout.LayoutParams(0, -2, 1f));
-            row.addView(file, weightMargins(1f, 8));
-            programBox.addView(row, margins(0, 8, 0, 0));
+            LinearLayout card = BhUi.card(ctx);
+            TextView t = BhUi.text(ctx, 14, BhUi.WHITE, true);
+            t.setText("Trainer program");
+            card.addView(t);
+            card.addView(note("No trainer for this game yet. Find online opens a trainer site searched for this "
+                    + "game: tap its download link once, and from then on it starts with the game."), BhUi.below(ctx, 4));
+            LinearLayout row = BhUi.row(ctx);
+            Button find = BhUi.button(ctx, "Find online", BhUi.PRIMARY);
+            BhUi.onTap(find, BhTrainerPanel::programFindOnline);
+            Button file = BhUi.button(ctx, "Use a file", BhUi.SECONDARY);
+            BhUi.onTap(file, BhTrainerPanel::programPickFile);
+            row.addView(find, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(file, BhUi.fill(ctx, 8));
+            card.addView(row, BhUi.below(ctx, 10));
+            programBox.addView(card);
             return;
         }
-        TextView name = text(13, WHITE, false);
-        name.setText(exe.getName());
-        programBox.addView(name);
-        programStatus = text(12, GREY, false);
+
+        // Status row: name, running state, Start/Stop, more
+        LinearLayout head = BhUi.row(ctx);
+        head.setPadding(dp(14), dp(8), dp(6), dp(8));
+        head.setBackground(BhUi.rounded(ctx, BhUi.CARD_HI, 12));
+        LinearLayout texts = new LinearLayout(ctx);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView name = BhUi.text(ctx, 14, BhUi.WHITE, true);
+        name.setText(exe.getName().replaceAll("(?i)\\.exe$", ""));
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(name);
+        programStatus = BhUi.text(ctx, 12, BhUi.GREY, false);
         programStatus.setText("Checking…");
-        programBox.addView(programStatus, margins(0, 2, 0, 0));
+        texts.addView(programStatus);
+        head.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        programStartStop = BhUi.button(ctx, "Start", BhUi.PRIMARY);
+        BhUi.onTap(programStartStop, BhTrainerPanel::programStartOrStop);
+        head.addView(programStartStop, BhUi.next(ctx, 8));
+        Button more = BhUi.button(ctx, "⋮", BhUi.QUIET);
+        more.setContentDescription("More trainer options");
+        more.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        more.setPadding(0, 0, 0, 0);
+        BhUi.onTap(more, () -> programMenu(more, exe, id));
+        LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(dp(44), dp(44));
+        ml.leftMargin = dp(2);
+        head.addView(more, ml);
+        programBox.addView(head);
 
-        LinearLayout row = new LinearLayout(ctx);
-        programStartStop = button("Start", true);
-        programStartStop.setOnClickListener(v -> programStartOrStop());
-        Button auto = button(BhTrainerProgram.autostart(ctx, id) ? "Starts with game: ON" : "Starts with game: OFF", false);
-        auto.setOnClickListener(v -> {
-            boolean on = !BhTrainerProgram.autostart(ctx, id);
-            BhTrainerProgram.setAutostart(ctx, id, on);
-            auto.setText(on ? "Starts with game: ON" : "Starts with game: OFF"); // in place: keeps focus
-        });
-        row.addView(programStartStop, new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(auto, weightMargins(1f, 8));
-        programBox.addView(row, margins(0, 8, 0, 0));
-
-        programMono = button("Install .NET support", true);
+        programMono = BhUi.button(ctx, "Install .NET support", BhUi.PRIMARY);
         programMono.setVisibility(View.GONE);
-        programMono.setOnClickListener(v -> installMono());
-        programBox.addView(programMono, margins(0, 8, 0, 0));
+        BhUi.onTap(programMono, BhTrainerPanel::installMono);
+        programBox.addView(programMono, BhUi.below(ctx, 8));
 
         // ── Cheat switches: each presses the trainer's keys in the game ──
         List<BhTrainerKeys.Option> opts = BhTrainerKeys.load(BhTrainerProgram.dir(id));
-        TextView cheatsTitle = text(13, WHITE, true);
-        cheatsTitle.setText("Cheats");
-        programBox.addView(cheatsTitle, margins(0, 14, 0, 2));
         if (opts.isEmpty()) {
-            TextView none = text(11, GREY, false);
-            none.setText("No cheat list for this trainer. Download it with Find another to read the list from "
-                    + "its page, or use the Key pad with the keys the trainer shows.");
-            programBox.addView(none);
+            programBox.addView(note("No cheat list for this trainer. Download it with Find another (⋮) to read the "
+                    + "list from its page, or use the Key pad (⋮) with the keys the trainer shows."), BhUi.below(ctx, 10));
         } else {
-            TextView hint = text(11, GREY, false);
-            hint.setText("Tap a cheat to press its keys in the game. ON/OFF is the app's guess: "
-                    + "tap again if it's out of step.");
-            programBox.addView(hint, margins(0, 0, 0, 4));
-            for (BhTrainerKeys.Option o : opts) programBox.addView(cheatRow(o));
+            for (BhTrainerKeys.Option o : opts) programBox.addView(cheatRow(o), BhUi.below(ctx, 6));
+            programBox.addView(note("ON/OFF follows your taps (the trainer can't be asked): tap again if it's out of "
+                    + "step."), BhUi.below(ctx, 6));
         }
-        Button pad = button("Key pad", false);
-        pad.setOnClickListener(v -> keyPad());
-        programBox.addView(pad, margins(0, 8, 0, 0));
 
-        // The trainer's window: GameHub's Wine can't switch windows, so the app does it.
-        LinearLayout winRow = new LinearLayout(ctx);
-        Button showWin = button("Show trainer window", false);
-        showWin.setOnClickListener(v -> windowAction(true));
-        Button backWin = button("Back to the game", false);
-        backWin.setOnClickListener(v -> windowAction(false));
-        winRow.addView(showWin, new LinearLayout.LayoutParams(0, -2, 1f));
-        winRow.addView(backWin, weightMargins(1f, 8));
-        programBox.addView(winRow, margins(0, 8, 0, 0));
-
-        LinearLayout row2 = new LinearLayout(ctx);
-        Button other = button("Find another", false);
-        other.setOnClickListener(v -> programFindOnline());
-        Button remove = button("Remove", false);
-        remove.setOnClickListener(v -> new AlertDialog.Builder(ctx)
-                .setTitle("Remove this trainer?")
-                .setMessage(exe.getName())
-                .setPositiveButton("Remove", (d, w) -> io.execute(() -> {
-                    BhTrainerProgram.remove(ctx.getApplicationContext(), id);
-                    ui.post(() -> {
-                        programRefocus = true;
-                        showProgram();
-                    });
-                }))
-                .setNegativeButton("Cancel", null)
-                .show());
-        row2.addView(other, new LinearLayout.LayoutParams(0, -2, 1f));
-        row2.addView(remove, weightMargins(1f, 8));
-        programBox.addView(row2, margins(0, 8, 0, 0));
-
-        TextView note = text(11, GREY, false);
-        note.setText("The trainer runs in the background: its window is hidden a few seconds after it starts "
-                + "and the game comes back. Use the cheat switches below. Show trainer window brings it up; "
-                + "Back to the game puts it away. Cheats that change values usually work; some others may not "
-                + "work under emulation.");
-        programBox.addView(note, margins(0, 8, 0, 0));
+        LinearLayout autoRow = BhUi.row(ctx);
+        autoRow.setPadding(dp(4), 0, 0, 0);
+        TextView autoLabel = BhUi.text(ctx, 14, BhUi.WHITE, false);
+        autoLabel.setText("Start with the game");
+        autoRow.addView(autoLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        BhUi.Toggle auto = new BhUi.Toggle(ctx, "Start with the game");
+        auto.set(BhTrainerProgram.autostart(ctx, id), false);
+        auto.onChange(on -> BhTrainerProgram.setAutostart(ctx, id, on));
+        autoRow.addView(auto.view, auto.params());
+        programBox.addView(autoRow, BhUi.below(ctx, 6));
         refreshProgram();
+    }
+
+    private static void programMenu(View anchor, java.io.File exe, String id) {
+        PopupMenu m = new PopupMenu(ctx, anchor);
+        m.getMenu().add(0, 1, 0, "Key pad");
+        m.getMenu().add(0, 2, 1, "Show trainer window");
+        m.getMenu().add(0, 3, 2, "Back to the game");
+        m.getMenu().add(0, 4, 3, "Find another trainer");
+        m.getMenu().add(0, 5, 4, "Remove trainer");
+        m.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 1:
+                    keyPad();
+                    break;
+                case 2:
+                    windowAction(true);
+                    break;
+                case 3:
+                    windowAction(false);
+                    break;
+                case 4:
+                    programFindOnline();
+                    break;
+                case 5:
+                    new AlertDialog.Builder(ctx)
+                            .setTitle("Remove this trainer?")
+                            .setMessage(exe.getName())
+                            .setPositiveButton("Remove", (d, w) -> io.execute(() -> {
+                                BhTrainerProgram.remove(ctx.getApplicationContext(), id);
+                                ui.post(() -> {
+                                    programRefocus = true;
+                                    showProgram();
+                                });
+                            }))
+                            .setNegativeButton("Cancel", null)
+                            .show();
+                    break;
+                default:
+                    return false;
+            }
+            return true;
+        });
+        m.show();
     }
 
     /** Running or not (scans processes, so off the UI thread). */
@@ -517,16 +589,24 @@ public final class BhTrainerPanel {
             ui.post(() -> {
                 programChecking = false;
                 if (programStatus == null || programStartStop == null || programBusy) return;
-                programStatus.setText(pid > 0 ? "Running" : starting ? "Starting… (its window appears in a few seconds)"
-                        : mono ? "This trainer needs .NET support (Wine Mono), which GameHub's Wine leaves out. "
-                        + "Install it once for this game (about 80 MB)." : "Not running");
+                setProgramStatus(pid > 0 ? "Running · window hidden" : starting ? "Starting… (a few seconds)"
+                        : mono ? "Needs .NET support (Wine Mono): install it once for this game, about 80 MB"
+                        : "Not running", pid > 0 ? BhUi.GREEN : starting || mono ? BhUi.AMBER : BhUi.GREY);
                 if (programMono != null) programMono.setVisibility(mono ? View.VISIBLE : View.GONE);
+                boolean wasRunning = Boolean.TRUE.equals(programStartStop.getTag());
                 programStartStop.setText(pid > 0 ? "Stop" : "Start");
                 programStartStop.setTag(pid > 0);
+                if (wasRunning != pid > 0) BhUi.style(programStartStop, pid > 0 ? BhUi.SECONDARY : BhUi.PRIMARY);
                 programStartStop.setEnabled(!starting);
                 programStartStop.setAlpha(starting ? 0.4f : 1f);
             });
         });
+    }
+
+    private static void setProgramStatus(String text, int color) {
+        if (programStatus == null) return;
+        programStatus.setText(text);
+        programStatus.setTextColor(color);
     }
 
     private static void programStartOrStop() {
@@ -536,7 +616,7 @@ public final class BhTrainerPanel {
         programBusy = true;
         programStartStop.setEnabled(false);
         programStartStop.setAlpha(0.4f);
-        programStatus.setText(running ? "Stopping…" : "Starting… (its window appears in a few seconds)");
+        setProgramStatus(running ? "Stopping…" : "Starting… (a few seconds)", BhUi.AMBER);
         io.execute(() -> {
             String msg;
             try {
@@ -566,49 +646,36 @@ public final class BhTrainerPanel {
                 : ". Tap Start to run it.");
     }
 
-    private static void toastLong(String s) {
-        if (ctx != null) Toast.makeText(ctx, s, Toast.LENGTH_LONG).show();
-    }
-
     /** Cheat states as the app last set them, by game and keys (the trainer can't be asked). */
     private static final java.util.Map<String, Boolean> cheatOn = new java.util.HashMap<>();
 
     private static LinearLayout cheatRow(BhTrainerKeys.Option o) {
         String id = BhPlayTime.currentGameId();
         String key = id + "|" + o.keys;
-        LinearLayout row = new LinearLayout(ctx);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10), dp(6), dp(6), dp(6));
-        row.setBackground(rounded(0x14FFFFFF, 8));
-        TextView chip = text(11, WHITE, true);
-        chip.setText(o.keys);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(6), dp(3), dp(6), dp(3));
-        chip.setBackground(rounded(0x33FFFFFF, 6));
-        chip.setMinWidth(dp(64));
-        row.addView(chip);
-        TextView label = text(13, WHITE, false);
+        LinearLayout row = BhUi.row(ctx);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(4), dp(6), dp(4));
+        row.setBackground(BhUi.rounded(ctx, BhUi.CARD, 12));
+        LinearLayout texts = new LinearLayout(ctx);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView label = BhUi.text(ctx, 14, BhUi.WHITE, true);
         label.setText(o.label);
-        label.setPadding(dp(10), 0, dp(8), 0);
-        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
-        boolean on = Boolean.TRUE.equals(cheatOn.get(key));
-        Button sw = button(on ? "ON" : "OFF", on);
-        sw.setMinimumWidth(dp(64));
-        sw.setContentDescription(o.label + ", " + o.keys);
-        sw.setOnClickListener(v -> {
+        texts.addView(label);
+        TextView keys = BhUi.text(ctx, 12, BhUi.GREY, false);
+        keys.setText("Key " + o.keys);
+        texts.addView(keys);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        BhUi.Toggle sw = new BhUi.Toggle(ctx, o.label);
+        sw.set(Boolean.TRUE.equals(cheatOn.get(key)), false);
+        sw.onChange(now -> {
             if (!BhTrainerKeys.press(ctx, o.codes)) {
+                sw.set(!now, true); // nothing was pressed: put it back
                 toast("Can't reach the game's input");
                 return;
             }
-            boolean now = !Boolean.TRUE.equals(cheatOn.get(key));
             cheatOn.put(key, now);
-            sw.setText(now ? "ON" : "OFF");
-            sw.setBackground(button(now ? "ON" : "OFF", now).getBackground()); // colours only; keeps focus
         });
-        row.addView(sw);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(4);
-        row.setLayoutParams(lp);
+        row.addView(sw.view, sw.params());
         return row;
     }
 
@@ -631,12 +698,14 @@ public final class BhTrainerPanel {
         for (String[] r : rows) {
             LinearLayout line = new LinearLayout(ctx);
             for (String k : r) {
-                Button b = button(k, false);
-                b.setOnClickListener(v -> {
+                Button b = BhUi.button(ctx, k, BhUi.SECONDARY);
+                b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                b.setPadding(dp(4), 0, dp(4), 0);
+                BhUi.onTap(b, () -> {
                     int m = k.equals("Ctrl") ? 0 : k.equals("Alt") ? 1 : k.equals("Shift") ? 2 : -1;
                     if (m >= 0) {
                         mods[m] = !mods[m];
-                        b.setBackground(button(k, mods[m]).getBackground());
+                        BhUi.style(b, mods[m] ? BhUi.PRIMARY : BhUi.SECONDARY);
                         return;
                     }
                     StringBuilder combo = new StringBuilder();
@@ -648,7 +717,7 @@ public final class BhTrainerPanel {
                     if (codes == null || !BhTrainerKeys.press(ctx, codes)) toast("Can't reach the game's input");
                     else toast("Pressed " + combo);
                 });
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
                 lp.setMargins(dp(3), dp(3), dp(3), dp(3));
                 line.addView(b, lp);
             }
@@ -673,25 +742,25 @@ public final class BhTrainerPanel {
     }
 
     private static void installMono() {
-        if (programBusy) return;
+        if (programBusy || programMono == null) return;
         programBusy = true;
         programMono.setEnabled(false);
         programMono.setAlpha(0.4f);
-        programStartStop.setEnabled(false);
-        programStartStop.setAlpha(0.4f);
+        if (programStartStop != null) {
+            programStartStop.setEnabled(false);
+            programStartStop.setAlpha(0.4f);
+        }
         io.execute(() -> {
             String msg;
             try {
-                msg = BhTrainerProgram.installMono(text -> ui.post(() -> {
-                    if (programStatus != null) programStatus.setText(text);
-                }));
+                msg = BhTrainerProgram.installMono(text -> ui.post(() -> setProgramStatus(text, BhUi.AMBER)));
             } catch (Throwable t) {
                 msg = "Couldn't install .NET support: " + (t.getMessage() != null ? t.getMessage() : t.toString());
             }
             String m = msg;
             ui.post(() -> {
                 programBusy = false;
-                toastLong(m);
+                toast(m);
                 showProgram();
             });
         });
@@ -712,7 +781,7 @@ public final class BhTrainerPanel {
                     return saved + (n > 0 ? " (" + n + " cheats found)" : "");
                 },
                 msg -> {
-                    toastLong(installedMessage(msg));
+                    toast(installedMessage(msg));
                     programRefocus = true;
                     showProgram();
                 });
@@ -741,7 +810,7 @@ public final class BhTrainerPanel {
                     }
                     String m = msg;
                     ui.post(() -> {
-                        toastLong(m);
+                        toast(m);
                         programRefocus = true;
                         showProgram();
                     });
@@ -756,40 +825,36 @@ public final class BhTrainerPanel {
         if (tableBox == null) return;
         tableBox.removeAllViews();
         if (tableLoading) {
-            TextView wait = text(12, GREY, false);
-            wait.setText("Loading…");
-            tableBox.addView(wait);
+            tableBox.addView(note("Loading…"));
             return;
         }
         if (BhPlayTime.currentGameId() == null) {
-            TextView none = text(12, GREY, false);
-            none.setText("No game running.");
-            tableBox.addView(none);
+            tableBox.addView(note("No game running."));
             return;
         }
         String name = BhCheatTable.tableName();
         if (name == null) {
-            TextView none = text(12, GREY, false);
-            none.setText("No table for this game. Find online opens FearLess Revolution searched for this game: "
-                    + "sign in once and tap a table's download link. Or import a .CT file you downloaded.");
-            tableBox.addView(none);
-            LinearLayout row = new LinearLayout(ctx);
-            Button find = button("Find online", true);
-            find.setOnClickListener(v -> findOnline());
-            Button imp = button("Import file", false);
-            imp.setOnClickListener(v -> importDialog());
-            row.addView(find, new LinearLayout.LayoutParams(0, -2, 1f));
-            row.addView(imp, weightMargins(1f, 8));
-            tableBox.addView(row, margins(0, 8, 0, 0));
+            tableBox.addView(note("No table for this game."));
+            LinearLayout row = BhUi.row(ctx);
+            Button find = BhUi.button(ctx, "Find online", BhUi.SECONDARY);
+            BhUi.onTap(find, BhTrainerPanel::findOnline);
+            Button imp = BhUi.button(ctx, "Import file", BhUi.SECONDARY);
+            BhUi.onTap(imp, BhTrainerPanel::importDialog);
+            row.addView(find, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(imp, BhUi.fill(ctx, 8));
+            tableBox.addView(row, BhUi.below(ctx, 8));
             return;
         }
-        LinearLayout head = new LinearLayout(ctx);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView tn = text(12, GREY, false);
+        LinearLayout head = BhUi.row(ctx);
+        TextView tn = BhUi.text(ctx, 12, BhUi.GREY, false);
         tn.setText(name);
-        head.addView(tn, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button remove = button("Remove", false);
-        remove.setOnClickListener(v -> new AlertDialog.Builder(ctx)
+        tn.setSingleLine(true);
+        tn.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        head.addView(tn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button other = BhUi.button(ctx, "Find online", BhUi.QUIET);
+        BhUi.onTap(other, BhTrainerPanel::findOnline);
+        Button remove = BhUi.button(ctx, "Remove", BhUi.QUIET);
+        BhUi.onTap(remove, () -> new AlertDialog.Builder(ctx)
                 .setTitle("Remove this table?")
                 .setMessage(name)
                 .setPositiveButton("Remove", (d, w) -> {
@@ -798,33 +863,29 @@ public final class BhTrainerPanel {
                 })
                 .setNegativeButton("Cancel", null)
                 .show());
-        Button other = button("Find online", false);
-        other.setOnClickListener(v -> findOnline());
-        head.addView(other, wrapLeft(8));
-        head.addView(remove, wrapLeft(8));
+        head.addView(other, BhUi.next(ctx, 4));
+        head.addView(remove, BhUi.next(ctx, 4));
         tableBox.addView(head);
         int usable = 0;
         for (BhCheatTable.Entry e : BhCheatTable.entries()) {
             if (e.header) {
-                TextView h = text(12, WHITE, true);
+                TextView h = BhUi.text(ctx, 12, BhUi.WHITE, true);
                 h.setText(e.description);
                 h.setPadding(dp(4 + 12 * e.depth), dp(10), 0, dp(2));
                 tableBox.addView(h);
                 continue;
             }
-            LinearLayout row = listRow(e.description + (e.frozen ? "  ❄" : ""), e.usable() ? "…" : "—");
-            row.setPadding(dp(12 + 12 * e.depth), dp(10), dp(12), dp(10));
+            LinearLayout row = listRow(e.description, e.frozen ? "Frozen" : null, e.usable() ? "…" : "—");
+            row.setPadding(dp(14 + 12 * e.depth), dp(6), dp(14), dp(6));
             row.setTag(e);
             if (!e.usable()) row.setAlpha(0.45f);
             else usable++;
-            row.setOnClickListener(v -> tableEntryDialog(e));
-            tableBox.addView(row);
+            BhUi.onTap(row, () -> tableEntryDialog(e));
+            tableBox.addView(row, BhUi.below(ctx, 4));
         }
         if (usable == 0) {
-            TextView note = text(11, GREY, false);
-            note.setText("None of this table's cheats can be used yet (they are scripts). "
-                    + "Try another table for this game.");
-            tableBox.addView(note, margins(0, 8, 0, 0));
+            tableBox.addView(note("None of this table's cheats can be used yet (they are scripts). "
+                    + "Try another table for this game."), BhUi.below(ctx, 8));
         }
         refreshTable();
     }
@@ -946,12 +1007,7 @@ public final class BhTrainerPanel {
         });
     }
 
-    private static Button bigButton(String label) {
-        Button b = button(label, true);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        b.setPadding(dp(12), dp(16), dp(12), dp(16));
-        return b;
-    }
+    // ── Search ───────────────────────────────────────────────────────────────
 
     private static void runScan(BhTrainer.Scan kind, boolean next) {
         runScan(kind, next, false);
@@ -1010,8 +1066,8 @@ public final class BhTrainerPanel {
             b.setAlpha(canNext ? 1f : 0.4f);
         }
         if (!BhTrainer.scanned()) {
-            status.setText("Results show here. Health bar: tap Start in Health finder. "
-                    + "A number on screen: Search by number.");
+            status.setText("Type a number you see in the game (e.g. your XP) and tap New search. "
+                    + "Health bar with no number: use the guided finder below.");
             return;
         }
         if (n == 0) {
@@ -1025,57 +1081,82 @@ public final class BhTrainerPanel {
             return;
         }
         if (n > SHOWN_RESULTS) {
-            status.setText(count + " results. Keep going: I lost / gained health, "
-                    + "or change the number in the game and tap Next search.");
+            status.setText(count + " results. Change the value in the game, type the new one and tap Next "
+                    + "(or use Decreased / Increased).");
             return;
         }
         if (n <= LOCK_ALL_MAX) lockAll.setVisibility(View.VISIBLE);
-        status.setText(count + (n == 1 ? " result" : " results") + ". Tap one to set or save it.");
+        status.setText(count + (n == 1 ? " result" : " results") + ". Edit one, or Lock it to keep its value.");
         BhTrainer.Type t = BhTrainer.type();
         for (int i = 0; i < (int) n; i++) {
             long addr = BhTrainer.result(i);
-            LinearLayout row = listRow(String.format(Locale.US, "0x%08X", addr),
-                    BhTrainer.format(BhTrainer.read(addr, t), t));
-            row.setTag(new Object[]{addr, t});
-            row.setOnClickListener(v -> resultDialog(addr, t));
-            resultsBox.addView(row);
+            resultsBox.addView(resultRow(addr, t), BhUi.below(ctx, 4));
         }
     }
 
-    private static void resultDialog(long addr, BhTrainer.Type t) {
-        String current = BhTrainer.format(BhTrainer.read(addr, t), t);
-        new AlertDialog.Builder(ctx)
-                .setTitle(String.format(Locale.US, "0x%08X  ·  %s", addr, t.label))
-                .setMessage("Current value: " + current)
-                .setPositiveButton("Set value", (d, w) -> askNumber("Set value", current, val -> {
-                    if (BhTrainer.write(addr, t, val)) toast("Set to " + BhTrainer.format(val, t));
-                    else toast("Could not write the value");
-                    refreshValues();
-                }))
-                .setNeutralButton("Save", (d, w) -> askText("Name this value", "e.g. XP, Money, Ammo", name -> {
-                    BhTrainer.addEntry(ctx.getApplicationContext(), name, addr, t);
-                    showSaved();
-                }))
-                .setNegativeButton("Close", null)
-                .show();
+    private static LinearLayout resultRow(long addr, BhTrainer.Type t) {
+        LinearLayout row = BhUi.row(ctx);
+        row.setMinimumHeight(dp(52));
+        row.setPadding(dp(14), dp(4), dp(6), dp(4));
+        row.setBackground(BhUi.rounded(ctx, BhUi.CARD, 12));
+        row.setTag(new Object[]{addr, t});
+        TextView a = BhUi.text(ctx, 13, BhUi.GREY, false);
+        a.setTypeface(android.graphics.Typeface.MONOSPACE);
+        a.setText(String.format(Locale.US, "0x%08X", addr));
+        row.addView(a, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView v = BhUi.text(ctx, 15, BhUi.WHITE, true);
+        v.setTag("value");
+        v.setText(BhTrainer.format(BhTrainer.read(addr, t), t));
+        row.addView(v, BhUi.next(ctx, 8));
+        Button edit = BhUi.button(ctx, "Edit", BhUi.SECONDARY);
+        edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        BhUi.onTap(edit, () -> askNumber("Set value", BhTrainer.format(BhTrainer.read(addr, t), t), val -> {
+            if (BhTrainer.write(addr, t, val)) toast("Set to " + BhTrainer.format(val, t));
+            else toast("Could not write the value");
+            refreshValues();
+        }));
+        row.addView(edit, BhUi.next(ctx, 10));
+        Button lock = BhUi.button(ctx, "Lock", BhUi.PRIMARY);
+        lock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        BhUi.onTap(lock, () -> lockOne(addr, t));
+        row.addView(lock, BhUi.next(ctx, 6));
+        return row;
     }
+
+    // ── Saved ────────────────────────────────────────────────────────────────
 
     private static void showSaved() {
         if (savedBox == null) return;
         savedBox.removeAllViews();
         List<BhTrainer.Entry> list = BhTrainer.entries();
+        if (tabs != null) tabs.items[SAVED].setText(list.isEmpty() ? "Saved" : "Saved · " + list.size());
         if (list.isEmpty()) {
-            TextView none = text(12, GREY, false);
-            none.setText("Nothing saved for this game yet.");
-            savedBox.addView(none);
+            savedBox.addView(note("Nothing saved for this game yet. Lock a search result, or use the Health "
+                    + "finder's Lock all."));
             return;
         }
         for (BhTrainer.Entry e : list) {
-            LinearLayout row = listRow(e.name + (e.frozen ? "  ❄" : ""),
+            LinearLayout row = listRow(e.name, String.format(Locale.US, "0x%08X · %s", e.address, e.type.label),
                     BhTrainer.format(BhTrainer.read(e.address, e.type), e.type));
             row.setTag(e);
-            row.setOnClickListener(v -> entryDialog(e));
-            savedBox.addView(row);
+            BhUi.onTap(row, () -> entryDialog(e));
+            BhUi.Toggle freeze = new BhUi.Toggle(ctx, "Freeze " + e.name);
+            freeze.set(e.frozen, false);
+            freeze.onChange(on -> {
+                if (on) {
+                    Double now = BhTrainer.read(e.address, e.type);
+                    if (now == null) {
+                        freeze.set(false, true);
+                        toast("Can't read this address; search again");
+                        return;
+                    }
+                    BhTrainer.setFrozen(e, true, now);
+                } else {
+                    BhTrainer.setFrozen(e, false, 0);
+                }
+            });
+            row.addView(freeze.view, freeze.params());
+            savedBox.addView(row, BhUi.below(ctx, 6));
         }
     }
 
@@ -1090,19 +1171,15 @@ public final class BhTrainerPanel {
                     if (e.frozen) BhTrainer.setFrozen(e, true, val);
                     refreshValues();
                 }))
-                .setNeutralButton(e.frozen ? "Unfreeze" : "Freeze", (d, w) -> {
-                    if (e.frozen) {
-                        BhTrainer.setFrozen(e, false, 0);
-                    } else {
-                        Double now = BhTrainer.read(e.address, e.type);
-                        if (now == null) {
-                            toast("Can't read this address; search again");
-                            return;
-                        }
-                        BhTrainer.setFrozen(e, true, now);
-                    }
+                .setNeutralButton("Rename", (d, w) -> askText("Name this value", "e.g. XP, Money, Ammo", name -> {
+                    boolean frozen = e.frozen;
+                    double at = e.frozenValue;
+                    BhTrainer.setFrozen(e, false, 0);
+                    BhTrainer.removeEntry(ctx.getApplicationContext(), e);
+                    BhTrainer.Entry n = BhTrainer.addEntry(ctx.getApplicationContext(), name, e.address, e.type);
+                    if (frozen) BhTrainer.setFrozen(n, true, at);
                     showSaved();
-                })
+                }))
                 .setNegativeButton("Delete", (d, w) -> {
                     BhTrainer.setFrozen(e, false, 0);
                     BhTrainer.removeEntry(ctx.getApplicationContext(), e);
@@ -1121,7 +1198,7 @@ public final class BhTrainerPanel {
     }
 
     private static void updateValues(LinearLayout box) {
-        if (box == null) return;
+        if (box == null || !box.isShown()) return;
         for (int i = 0; i < box.getChildCount(); i++) {
             View row = box.getChildAt(i);
             Object tag = row.getTag();
@@ -1185,111 +1262,63 @@ public final class BhTrainerPanel {
     private static View padded(View v) {
         LinearLayout box = new LinearLayout(ctx);
         box.setPadding(dp(20), dp(8), dp(20), 0);
-        box.addView(v, new LinearLayout.LayoutParams(-1, -2));
+        box.addView(v, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         return box;
     }
 
     // ── View helpers ─────────────────────────────────────────────────────────
 
-    private static LinearLayout listRow(String left, String right) {
-        LinearLayout row = new LinearLayout(ctx);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        row.setBackground(focusable());
+    /** A tappable row: name (and a detail line) on the left, the live value on the right. */
+    private static LinearLayout listRow(String name, String detail, String value) {
+        LinearLayout row = BhUi.row(ctx);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(4), dp(6), dp(4));
+        row.setBackground(BhUi.states(ctx, BhUi.CARD, 0, 12));
         row.setFocusable(true);
         row.setClickable(true);
-        TextView l = text(14, WHITE, false);
-        l.setText(left);
-        row.addView(l, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView r = text(14, WHITE, true);
+        LinearLayout texts = new LinearLayout(ctx);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView l = BhUi.text(ctx, 14, BhUi.WHITE, true);
+        l.setText(name);
+        texts.addView(l);
+        if (detail != null) {
+            TextView d = BhUi.text(ctx, 12, BhUi.GREY, false);
+            d.setText(detail);
+            texts.addView(d);
+        }
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView r = BhUi.text(ctx, 15, BhUi.WHITE, true);
         r.setTag("value");
-        r.setText(right);
-        row.addView(r);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(4);
-        row.setLayoutParams(lp);
+        r.setText(value);
+        r.setGravity(Gravity.END);
+        row.addView(r, BhUi.next(ctx, 8));
         return row;
     }
 
-    private static LinearLayout card() {
-        LinearLayout c = new LinearLayout(ctx);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(14), dp(14), dp(14), dp(14));
-        c.setBackground(rounded(CARD, 12));
-        return c;
-    }
-
-    private static Button button(String label, boolean primary) {
-        Button b = new Button(ctx);
-        b.setAllCaps(false);
-        b.setText(label);
-        b.setTextColor(WHITE);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        b.setMinHeight(0);
-        b.setMinimumHeight(0);
-        b.setPadding(dp(12), dp(8), dp(12), dp(8));
-        GradientDrawable on = new GradientDrawable();
-        on.setColor(primary ? ACCENT : 0x33FFFFFF);
-        on.setCornerRadius(dp(8));
-        on.setStroke(dp(2), 0xE6FFFFFF);
-        GradientDrawable off = new GradientDrawable();
-        off.setColor(primary ? ACCENT : 0x33FFFFFF);
-        off.setCornerRadius(dp(8));
-        StateListDrawable s = new StateListDrawable();
-        s.addState(new int[]{android.R.attr.state_focused}, on);
-        s.addState(new int[]{}, off);
-        b.setBackground(s);
-        return b;
-    }
-
-    private static StateListDrawable focusable() {
-        GradientDrawable on = new GradientDrawable();
-        on.setColor(0x1AFFFFFF);
-        on.setCornerRadius(dp(8));
-        on.setStroke(dp(2), 0xE6FFFFFF);
-        GradientDrawable off = new GradientDrawable();
-        off.setColor(0x0DFFFFFF);
-        off.setCornerRadius(dp(8));
-        StateListDrawable s = new StateListDrawable();
-        s.addState(new int[]{android.R.attr.state_focused}, on);
-        s.addState(new int[]{android.R.attr.state_pressed}, on);
-        s.addState(new int[]{}, off);
-        return s;
-    }
-
-    private static GradientDrawable rounded(int color, int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(radiusDp));
-        return g;
-    }
-
-    private static TextView text(int sp, int color, boolean bold) {
-        TextView t = new TextView(ctx);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTextColor(color);
-        if (bold) t.setTypeface(null, Typeface.BOLD);
+    private static TextView sectionTitle(String s) {
+        TextView t = BhUi.text(ctx, 14, BhUi.WHITE, true);
+        t.setText(s);
         return t;
     }
 
-    /** Full width with margins. */
-    private static LinearLayout.LayoutParams margins(int l, int t, int r, int b) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(dp(l), dp(t), dp(r), dp(b));
-        return lp;
+    private static TextView note(String s) {
+        TextView t = BhUi.text(ctx, 12, BhUi.GREY, false);
+        t.setText(s);
+        t.setLineSpacing(0, 1.1f);
+        return t;
     }
 
-    /** Natural size with a left margin, for buttons in a row. */
-    private static LinearLayout.LayoutParams wrapLeft(int left) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.leftMargin = dp(left);
-        return lp;
-    }
-
-    private static LinearLayout.LayoutParams weightMargins(float weight, int left) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, weight);
-        lp.leftMargin = dp(left);
-        return lp;
+    private static View firstFocusable(ViewGroup g) {
+        for (int i = 0; i < g.getChildCount(); i++) {
+            View c = g.getChildAt(i);
+            if (c.isFocusable() && c.isEnabled() && (c instanceof Button || c instanceof FrameLayout)) return c;
+            if (c instanceof ViewGroup) {
+                View f = firstFocusable((ViewGroup) c);
+                if (f != null) return f;
+            }
+        }
+        return null;
     }
 
     private static Double parse(String s) {
@@ -1301,10 +1330,10 @@ public final class BhTrainerPanel {
     }
 
     private static void toast(String s) {
-        Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show();
+        BhUi.snack(host, s, null, null);
     }
 
     private static int dp(int v) {
-        return BhPlayTime.dp(ctx, v);
+        return BhUi.dp(ctx, v);
     }
 }

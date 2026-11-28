@@ -135,16 +135,22 @@ final class BhPerfHistory {
         return out;
     }
 
-    /** The FSR tab's text: settings ranked by average FPS, then the latest sessions. */
-    static String summary(Context ctx, String game) {
-        List<Entry> all = read(ctx, game);
-        if (all.isEmpty()) {
-            return "No sessions yet. With the upscaler loaded (report only or FSR), every 30 s or more of play with "
-                    + "the same settings is recorded here.";
+    /** One settings combination, summed over all its sessions. */
+    static final class Ranked {
+        String settings;
+        double fps, low, seconds, watts;
+        int cpuMax;
+
+        String detail() {
+            String d = String.format(Locale.US, "low %.0f · %s played · CPU up to %d°C", low, minutes(seconds), cpuMax);
+            return watts > 0 ? d + String.format(Locale.US, " · %.1f W", watts) : d;
         }
-        // Settings ranked: FPS weighted by play time.
+    }
+
+    /** Settings ranked by average FPS (weighted by play time), best first. */
+    static List<Ranked> ranked(Context ctx, String game) {
         Map<String, double[]> by = new LinkedHashMap<>(); // fps*s, low*s, s, cpuMax, power*s, powerS
-        for (Entry e : all) {
+        for (Entry e : read(ctx, game)) {
             double[] a = by.get(e.settings);
             if (a == null) by.put(e.settings, a = new double[6]);
             a[0] += e.avg * e.seconds;
@@ -156,29 +162,36 @@ final class BhPerfHistory {
                 a[5] += e.seconds;
             }
         }
-        List<Map.Entry<String, double[]>> ranked = new ArrayList<>(by.entrySet());
-        ranked.sort((x, y) -> Double.compare(y.getValue()[0] / y.getValue()[2], x.getValue()[0] / x.getValue()[2]));
-        StringBuilder b = new StringBuilder("By settings (best average FPS first):\n");
-        for (int i = 0; i < Math.min(5, ranked.size()); i++) {
-            double[] a = ranked.get(i).getValue();
-            b.append("• ").append(ranked.get(i).getKey()).append("\n   ")
-                    .append(String.format(Locale.US, "%.0f FPS (low %.0f) · %s played · CPU up to %d°C",
-                            a[0] / a[2], a[1] / a[2], minutes(a[2]), (int) a[3]));
-            if (a[5] > 0) b.append(String.format(Locale.US, " · %.1f W", a[4] / a[5]));
-            b.append('\n');
+        List<Ranked> out = new ArrayList<>();
+        for (Map.Entry<String, double[]> m : by.entrySet()) {
+            double[] a = m.getValue();
+            if (a[2] <= 0) continue;
+            Ranked r = new Ranked();
+            r.settings = m.getKey();
+            r.fps = a[0] / a[2];
+            r.low = a[1] / a[2];
+            r.seconds = a[2];
+            r.cpuMax = (int) a[3];
+            r.watts = a[5] > 0 ? a[4] / a[5] : 0;
+            out.add(r);
         }
-        b.append("\nLatest sessions:\n");
+        out.sort((x, y) -> Double.compare(y.fps, x.fps));
+        return out;
+    }
+
+    /** The latest sessions, newest first, one line each. */
+    static List<String> latest(Context ctx, String game, int count) {
+        List<Entry> all = read(ctx, game);
+        List<String> out = new ArrayList<>();
         SimpleDateFormat df = new SimpleDateFormat("d MMM HH:mm", Locale.getDefault());
-        for (int i = all.size() - 1; i >= Math.max(0, all.size() - 4); i--) {
+        for (int i = all.size() - 1; i >= Math.max(0, all.size() - count); i--) {
             Entry e = all.get(i);
-            b.append("• ").append(df.format(new Date(e.start))).append(" · ").append(minutes(e.seconds)).append(" · ")
-                    .append(e.settings).append("\n   ")
-                    .append(String.format(Locale.US, "%.0f FPS (low %.0f) · GPU %d%% · CPU up to %d°C", e.avg, e.low,
-                            e.gpu, e.cpuMax));
-            if (e.power > 0) b.append(String.format(Locale.US, " · %.1f W", e.power));
-            b.append('\n');
+            String l = df.format(new Date(e.start)) + " · " + minutes(e.seconds) + " · " + e.settings + "\n"
+                    + String.format(Locale.US, "%.0f FPS (low %.0f) · GPU %d%% · CPU up to %d°C", e.avg, e.low, e.gpu,
+                    e.cpuMax) + (e.power > 0 ? String.format(Locale.US, " · %.1f W", e.power) : "");
+            out.add(l);
         }
-        return b.toString().trim();
+        return out;
     }
 
     private static String minutes(double seconds) {

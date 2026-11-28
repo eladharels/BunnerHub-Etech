@@ -220,6 +220,18 @@ final class BhUpscalerLog {
         return c > 0 ? c + "°C" : "?";
     }
 
+    /** GPU load in % (-1 if unreadable), for the FSR tab's live line. */
+    static int gpuLoad() {
+        return readGpu();
+    }
+
+    /** The hotter of CPU and GPU in °C (0 if unreadable), for the FSR tab's live line. */
+    static int hotTemp() {
+        int cpu = readZoneTemp(new String[]{"cpu-cluster0", "cpu0-thermal", "cpu-thermal", "cpucluster", "cpu"}, null);
+        int gpu = readZoneTemp(new String[]{"gpuss-0", "gpuss", "gpu-thermal", "gpu"}, "/sys/class/kgsl/kgsl-3d0/temp");
+        return Math.max(cpu, gpu);
+    }
+
     private static int readGpu() {
         String v = line("/sys/class/kgsl/kgsl-3d0/gpubusy");
         if (v != null) {

@@ -1,5 +1,6 @@
 package app.revanced.extension.gamehub;
 
+import android.app.Activity;
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -94,6 +95,52 @@ final class BhVkSurfaceScale {
         } catch (Throwable t) {
             Log.w(TAG, "cannot listen for Native Rendering+", t);
         }
+    }
+
+    /**
+     * Sets Native Rendering+ to Force Enable ("Always"): saved in the game's in-game
+     * settings (WineInGameSettings, as the Performance tab does) and applied to the
+     * running game (WineActivity.d3). Returns false if it could not be applied.
+     */
+    static boolean forceNativeRendering(Activity activity) {
+        try {
+            Class<?> modeType = Class.forName("com.xj.winemu.bean.NativeRenderingMode");
+            Object always = modeType.getField("Always").get(null);
+            Object settings = null;
+            for (Class<?> c = activity.getClass(); c != null && settings == null; c = c.getSuperclass()) {
+                for (Field f : c.getDeclaredFields()) {
+                    if (f.getType().getName().equals("com.xj.winemu.utils.WineInGameSettings")) {
+                        f.setAccessible(true);
+                        settings = f.get(activity);
+                        if (settings != null) break;
+                    }
+                }
+            }
+            Method save = settings == null ? null : onlySetter(settings.getClass(), modeType, false);
+            if (save != null) save.invoke(settings, always);
+            Method apply = onlySetter(activity.getClass(), modeType, false);
+            if (apply == null) return false;
+            apply.invoke(activity, always);
+            Log.i(TAG, "Native Rendering+ set to Always" + (save == null ? " (not saved)" : ""));
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "cannot set Native Rendering+", t);
+            return false;
+        }
+    }
+
+    /** The one public non-static void method taking just {@code type}, or null if there isn't exactly one. */
+    private static Method onlySetter(Class<?> cls, Class<?> type, boolean wantStatic) {
+        Method found = null;
+        for (Method m : cls.getMethods()) {
+            if (m.getParameterTypes().length == 1 && m.getParameterTypes()[0] == type
+                    && m.getReturnType() == void.class
+                    && java.lang.reflect.Modifier.isStatic(m.getModifiers()) == wantStatic) {
+                if (found != null) return null;
+                found = m;
+            }
+        }
+        return found;
     }
 
     /** A game launch without upscaling: back to scale 1 and stop polling. */

@@ -12,8 +12,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -153,96 +153,214 @@ public final class BhSaveBackup {
         }, "BhSaveBackupList").start();
     }
 
+    /**
+     * The Saves dialog: Back up now, the backups (newest first, marked Automatic or
+     * Yours) each with Restore (confirmed in its row), and the automatic-backup
+     * switch. Backing up and restoring run in place; the list refreshes after.
+     */
     private static void showDialog(Activity activity, String id, String name, List<File> list, boolean hasContainer,
                                    File where) {
-        StringBuilder msg = new StringBuilder();
-        msg.append("Copies this game's saves and settings (Documents, AppData, Saved Games and Steam saves in its "
-                + "Wine container) to your phone's storage:\n")
-                .append(where.getAbsolutePath().replace(Environment.getExternalStorageDirectory().getPath(),
-                        "Internal storage"))
-                .append("\n\n");
-        msg.append(list.isEmpty() ? "No backups yet." : "Latest backup: " + describe(list.get(0)) + " ("
-                + list.size() + (list.size() == 1 ? " backup" : " backups") + " kept: up to " + KEEP
-                + " of yours and " + KEEP_AUTO + " automatic)");
+        Context c = activity;
+        LinearLayout root = new LinearLayout(c);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(BhUi.dp(c, 20), BhUi.dp(c, 18), BhUi.dp(c, 20), BhUi.dp(c, 12));
+        FrameLayout host = BhUi.host(c, root);
+        AlertDialog dialog = new AlertDialog.Builder(activity).setView(host).create();
+
+        // Header: title, game and folder, Back up now
+        LinearLayout header = BhUi.row(c);
+        LinearLayout titles = new LinearLayout(c);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        TextView title = BhUi.text(c, 18, BhUi.WHITE, true);
+        title.setText("Saves");
+        titles.addView(title);
+        TextView sub = BhUi.text(c, 12, BhUi.GREY, false);
+        sub.setText(name + "  ·  " + where.getAbsolutePath().replace(Environment.getExternalStorageDirectory().getPath(),
+                "Internal storage"));
+        titles.addView(sub);
+        header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.Button now = BhUi.button(c, "Back up now", BhUi.PRIMARY);
+        if (hasContainer) header.addView(now, BhUi.next(c, 10));
+        root.addView(header);
+
+        TextView working = BhUi.text(c, 13, BhUi.AMBER, false);
+        working.setVisibility(View.GONE);
+        root.addView(working, BhUi.below(c, 8));
+
         if (!hasContainer) {
-            msg.append("\n\nThis game has no container right now (not launched since it was installed). "
+            BhUi.Banner b = new BhUi.Banner(c, null);
+            b.message.setText("This game has no container right now (not launched since it was installed). "
                     + "Start it once, close it, then restore.");
+            root.addView(b.view, BhUi.below(c, 10));
         }
-        android.widget.CheckBox auto = new android.widget.CheckBox(activity);
-        auto.setText("Back up automatically after playing (only when saves changed; keeps the last "
-                + KEEP_AUTO + ", apart from yours)");
-        auto.setChecked(autoEnabled(activity));
-        auto.setOnCheckedChangeListener((v, on) -> setAutoEnabled(activity, on));
-        int pad = BhPlayTime.dp(activity, 20);
-        auto.setPadding(auto.getPaddingLeft(), BhPlayTime.dp(activity, 8), pad, 0);
-        FrameLayout box = new FrameLayout(activity);
-        box.setPadding(pad, 0, pad, 0);
-        box.addView(auto);
-        AlertDialog.Builder b = new AlertDialog.Builder(activity)
-                .setTitle("Saves: " + name)
-                .setMessage(msg.toString())
-                .setView(box)
-                .setNegativeButton("Close", null);
-        if (hasContainer) b.setPositiveButton("Back up now", (d, w) -> runBackup(activity, id, name, null));
-        if (hasContainer && !list.isEmpty()) {
-            b.setNeutralButton("Restore…", (d, w) -> chooseRestore(activity, id, name, list));
+
+        LinearLayout rows = new LinearLayout(c);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(c);
+        scroll.addView(rows);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        sl.topMargin = BhUi.dp(c, 12);
+        root.addView(scroll, sl);
+
+        RowAction[] restoreRow = new RowAction[1];
+        Busy busy = (text, task) -> {
+            working.setText(text);
+            working.setVisibility(View.VISIBLE);
+            BhUi.enable(now, false);
+            BhUi.enable(rows, false);
+            new Thread(() -> {
+                String result = task.run();
+                List<File> fresh = backups(name, id);
+                activity.runOnUiThread(() -> {
+                    working.setVisibility(View.GONE);
+                    BhUi.enable(now, true);
+                    BhUi.enable(rows, true);
+                    fillRows(activity, rows, fresh, hasContainer, restoreRow[0]);
+                    BhUi.snack(host, result, "OK", () -> {});
+                });
+            }, "BhSaveBackup").start();
+        };
+        BhUi.onTap(now, () -> busy.run("Backing up saves…", () -> runBackup(activity, id, name, null)));
+        restoreRow[0] = file -> busy.run("Restoring saves…", () -> runBackup(activity, id, name, file));
+        fillRows(activity, rows, list, hasContainer, restoreRow[0]);
+
+        // Automatic backup switch
+        LinearLayout autoRow = BhUi.row(c);
+        autoRow.setPadding(0, BhUi.dp(c, 8), 0, 0);
+        LinearLayout autoTexts = new LinearLayout(c);
+        autoTexts.setOrientation(LinearLayout.VERTICAL);
+        TextView autoLabel = BhUi.text(c, 14, BhUi.WHITE, false);
+        autoLabel.setText("Back up automatically after playing");
+        autoTexts.addView(autoLabel);
+        TextView autoSub = BhUi.text(c, 12, BhUi.GREY, false);
+        autoSub.setText("Only when saves changed. Keeps your last " + KEEP_AUTO + " automatic and " + KEEP
+                + " own backups.");
+        autoTexts.addView(autoSub);
+        autoRow.addView(autoTexts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        BhUi.Toggle auto = new BhUi.Toggle(c, "Back up automatically after playing");
+        auto.set(autoEnabled(activity), false);
+        auto.onChange(on -> setAutoEnabled(activity, on));
+        autoRow.addView(auto.view, auto.params());
+        View line = new View(c);
+        line.setBackgroundColor(BhUi.LINE);
+        LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1);
+        ll.topMargin = BhUi.dp(c, 10);
+        root.addView(line, ll);
+        root.addView(autoRow);
+
+        LinearLayout bottom = BhUi.row(c);
+        bottom.setGravity(Gravity.END);
+        android.widget.Button close = BhUi.button(c, "Close", BhUi.QUIET);
+        BhUi.onTap(close, dialog::dismiss);
+        bottom.addView(close);
+        root.addView(bottom, BhUi.below(c, 4));
+
+        dialog.show();
+        android.view.Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(BhUi.outlined(c, 0xFF161C3D, 0xFF2E3666, 16));
+            android.util.DisplayMetrics dm = c.getResources().getDisplayMetrics();
+            int width = Math.min(BhUi.dp(c, 620), (int) (dm.widthPixels * 0.92f));
+            int height = Math.min(BhUi.dp(c, 560), (int) (dm.heightPixels * 0.92f));
+            w.setLayout(width, height);
         }
-        b.show();
     }
 
-    private static void chooseRestore(Activity activity, String id, String name, List<File> list) {
-        String[] items = new String[list.size()];
-        for (int i = 0; i < items.length; i++) items[i] = describe(list.get(i));
-        new AlertDialog.Builder(activity)
-                .setTitle("Restore which backup?")
-                .setItems(items, (d, which) -> new AlertDialog.Builder(activity)
-                        .setTitle("Restore this backup?")
-                        .setMessage(items[which] + "\n\nThe game's saves become exactly what this backup holds: "
-                                + "saves made since then are removed. Your current saves are backed up first, "
-                                + "so you can go back. Make sure the game isn't running.")
-                        .setPositiveButton("Restore", (d2, w2) -> runBackup(activity, id, name, list.get(which)))
-                        .setNegativeButton("Cancel", null)
-                        .show())
-                .setNegativeButton("Cancel", null)
-                .show();
+    private interface Task {
+        String run();
     }
 
-    /** Backs up now; with restoreFrom, backs up the current state and then restores that backup. */
-    private static void runBackup(Activity activity, String id, String name, File restoreFrom) {
-        AlertDialog progress = new AlertDialog.Builder(activity)
-                .setTitle(restoreFrom == null ? "Backing up saves…" : "Restoring saves…")
-                .setMessage("Please wait.")
-                .setCancelable(false)
-                .show();
-        new Thread(() -> {
-            String result;
-            File made = null;
-            try {
-                made = backup(activity, id, name, restoreFrom); // never prunes the backup being restored
-                if (restoreFrom == null) {
-                    result = "Backed up: " + describe(made);
-                } else {
-                    int n = restore(activity, id, restoreFrom);
-                    result = "Restored " + n + " files from " + describe(restoreFrom)
-                            + ". Your previous saves are in the backup from " + describe(made) + ".";
-                }
-            } catch (Throwable t) {
-                Log.w(TAG, "backup/restore failed", t);
-                String why = t.getMessage() != null ? t.getMessage() : t.toString();
-                if (restoreFrom == null) result = "Backup failed: " + why;
-                else if (made == null) result = "Restore not started (the safety backup failed): " + why;
-                else result = "Restore failed: " + why + ". Your saves from before are in the backup from "
-                        + describe(made) + ": restore that one to go back.";
-            }
-            String r = result;
-            activity.runOnUiThread(() -> {
-                try {
-                    progress.dismiss();
-                } catch (Throwable ignored) {
-                }
-                Toast.makeText(activity, r, Toast.LENGTH_LONG).show();
+    private interface Busy {
+        void run(String text, Task task);
+    }
+
+    private interface RowAction {
+        void restore(File backup);
+    }
+
+    /** The backup rows: date, Automatic/Yours, size, and Restore with an in-row confirmation. */
+    private static void fillRows(Activity activity, LinearLayout rows, List<File> list, boolean hasContainer,
+                                 RowAction action) {
+        Context c = activity;
+        rows.removeAllViews();
+        if (list.isEmpty()) {
+            TextView none = BhUi.text(c, 13, BhUi.GREY, false);
+            none.setText("No backups yet.");
+            rows.addView(none);
+            return;
+        }
+        for (File f : list) {
+            LinearLayout row = BhUi.row(c);
+            row.setMinimumHeight(BhUi.dp(c, 52));
+            row.setPadding(BhUi.dp(c, 14), BhUi.dp(c, 4), BhUi.dp(c, 6), BhUi.dp(c, 4));
+            row.setBackground(BhUi.rounded(c, BhUi.CARD_HI, 12));
+            TextView when = BhUi.text(c, 14, BhUi.WHITE, true);
+            when.setText(when(f));
+            row.addView(when);
+            boolean auto = isAuto(f);
+            TextView chip = BhUi.text(c, 11, auto ? 0xFFB7BBCB : 0xFFDAD7FF, true);
+            chip.setText(auto ? "Automatic" : "Yours");
+            chip.setPadding(BhUi.dp(c, 8), BhUi.dp(c, 3), BhUi.dp(c, 8), BhUi.dp(c, 3));
+            chip.setBackground(BhUi.rounded(c, auto ? 0x24FFFFFF : BhUi.ACCENT_SOFT, 6));
+            row.addView(chip, BhUi.next(c, 10));
+            TextView size = BhUi.text(c, 12, BhUi.GREY, false);
+            size.setText(humanSize(f.length()));
+            row.addView(size, BhUi.fill(c, 10));
+
+            android.widget.Button restore = BhUi.button(c, "Restore", BhUi.SECONDARY);
+            restore.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            if (!hasContainer) BhUi.enable(restore, false);
+            row.addView(restore, BhUi.next(c, 8));
+
+            LinearLayout confirm = BhUi.row(c);
+            confirm.setVisibility(View.GONE);
+            TextView warn = BhUi.text(c, 12, 0xFFFFD9A0, false);
+            warn.setText("Current saves are backed up first");
+            confirm.addView(warn);
+            android.widget.Button cancel = BhUi.button(c, "Cancel", BhUi.QUIET);
+            cancel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            android.widget.Button sure = BhUi.button(c, "Restore", BhUi.WARN);
+            sure.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            confirm.addView(cancel, BhUi.next(c, 6));
+            confirm.addView(sure, BhUi.next(c, 4));
+            row.addView(confirm, BhUi.next(c, 8));
+
+            BhUi.onTap(restore, () -> {
+                size.setVisibility(View.GONE);
+                restore.setVisibility(View.GONE);
+                confirm.setVisibility(View.VISIBLE);
+                sure.requestFocus();
             });
-        }, "BhSaveBackup").start();
+            BhUi.onTap(cancel, () -> {
+                confirm.setVisibility(View.GONE);
+                size.setVisibility(View.VISIBLE);
+                restore.setVisibility(View.VISIBLE);
+                restore.requestFocus();
+            });
+            BhUi.onTap(sure, () -> {
+                action.restore(f);
+            });
+            rows.addView(row, BhUi.below(c, rows.getChildCount() == 0 ? 0 : 6));
+        }
+    }
+
+    /** Backs up now; with restoreFrom, backs up the current state and then restores that backup. Off the UI thread. */
+    private static String runBackup(Activity activity, String id, String name, File restoreFrom) {
+        File made = null;
+        try {
+            made = backup(activity, id, name, restoreFrom); // never prunes the backup being restored
+            if (restoreFrom == null) return "Backed up (" + humanSize(made.length()) + ")";
+            int n = restore(activity, id, restoreFrom);
+            return "Restored " + n + " files from " + when(restoreFrom) + ". Your previous saves are in the "
+                    + "backup from " + when(made) + ".";
+        } catch (Throwable t) {
+            Log.w(TAG, "backup/restore failed", t);
+            String why = t.getMessage() != null ? t.getMessage() : t.toString();
+            if (restoreFrom == null) return "Backup failed: " + why;
+            if (made == null) return "Restore not started (the safety backup failed): " + why;
+            return "Restore failed: " + why + ". Your saves from before are in the backup from " + when(made)
+                    + ": restore that one to go back.";
+        }
     }
 
     // ── Backup and restore ───────────────────────────────────────────────────
@@ -586,15 +704,15 @@ public final class BhSaveBackup {
         }
     }
 
-    static String describe(File backup) {
+    /** The backup's date and time ("28 Nov, 13:41"). */
+    static String when(File backup) {
         String n = backup.getName();
-        String when = n;
         try {
             Date d = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).parse(n.substring(6, 21));
-            when = new SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(d);
+            return new SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(d);
         } catch (Throwable ignored) {
+            return n;
         }
-        return when + "  ·  " + humanSize(backup.length()) + (isAuto(backup) ? "  ·  automatic" : "");
     }
 
     private static String humanSize(long b) {
