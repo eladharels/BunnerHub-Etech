@@ -119,6 +119,10 @@ Already in the app from upstream BannerHub: Performance tab → AI Frame Generat
 
 **Status (2026-11-28):** built, not yet device-tested. FSR tab, Trainer tab (Cheats / Search / Saved) and Saves dialog redesigned from the mockups, with shared controls in `extension/BhUi.java` (selectors, switches, snackbar, pressed/focus states, haptics). To test: every control in the three screens, controller navigation, Native Rendering+ **Turn on**, screenshot **Share**, restore from the dialog.
 
+## 14. Custom cover picture ◐
+
+**Status (2026-11-28):** built, not yet device-tested. 🖼 Cover chip on the game page; picker of recent pictures; shown on the main screen and the game page through patched `GameDetailEntity` cover getters (database untouched). To test: pick a picture, check the main screen (may need going back to it, or an app restart), Use original.
+
 ---
 
 ## Open problems

@@ -948,6 +948,12 @@ When a game is installed and launched, GameHub creates a Wine virtual container 
 
 A **💾 Saves** chip on each game's detail page (once the game has a container): **Back up now** zips the container's user folders (Documents, AppData, Saved Games, for all users) and Steam's `userdata` (Steam Cloud saves) to `/sdcard/BunnerHub-Etech/saves/<game> (<id>)/saves-<date>.zip`, leaving out caches and temp folders; the last 5 backups are kept. The dialog lists the backups (newest first, marked *Automatic* or *Yours*, with their size); **Restore** on one asks for confirmation in its row, backs up the current state first, then makes the save folders exactly what the backup holds (saves made since then are removed; caches and anything behind folder links are never deleted). A switch at the bottom turns automatic backups after playing on or off (only when saves changed; the last 3 automatic ones are kept apart from yours). Use it before uninstalling the app or clearing its data, or to keep saves safe. A game that was installed again needs one launch (to create its container) before restoring.
 
+### Custom Cover
+
+A **🖼 Cover** chip on each game's detail page (under the Saves chip) opens a picker with your newest pictures from Pictures, DCIM, Download and `BunnerHub-Etech/screenshots`. Tap one and it becomes the game's cover on the main screen and the game page; **Use original** goes back. GameHub itself only lets you choose a cover when importing a game.
+
+The picture is scaled down and kept in the app's `files/bh_covers/`; GameHub's library database isn't changed. How: `GameDetailEntity.getCover_image()` / `getSquare_image()` are patched (build.yml) to ask `BhCover.cover()` first, so every screen that loads the cover gets your picture.
+
 ### UI Tweaks
 
 - The **"My"** tab in the bottom navigation bar is renamed to **"My Games"** for clarity.

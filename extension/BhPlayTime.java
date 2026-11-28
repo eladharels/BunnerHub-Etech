@@ -475,6 +475,7 @@ public final class BhPlayTime {
             activity.runOnUiThread(() -> showLabel(activity, text));
             BhKnownFixes.onDetail(activity, entity);
             BhSaveBackup.onDetail(activity, entity);
+            BhCover.onDetail(activity, entity);
         } catch (Throwable t) {
             Log.w(TAG, "onDetail failed", t);
         }

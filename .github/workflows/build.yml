@@ -990,6 +990,41 @@ jobs:
           print("Play Time patch applied.")
           PYEOF
 
+      - name: Apply custom cover smali patch
+        run: |
+          python3 << 'PYEOF'
+          import re, sys
+
+          # GameDetailEntity.getCover_image() / getSquare_image(): hand the value to
+          # BhCover.cover(this, value), which returns the game's own picture when the
+          # user picked one (files/bh_covers), else the value unchanged. Display only:
+          # the library database stores the entity's fields, not these getters.
+          path = 'apktool_out_base/smali_classes7/com/xj/common/service/bean/GameDetailEntity.smali'
+          src = open(path, encoding='utf-8').read()
+          for name in ('getCover_image', 'getSquare_image'):
+              m = re.search(r'(\.method public final ' + name + r'\(\)Ljava/lang/String;\n)(.*?)(\.end method)', src, re.S)
+              if not m:
+                  print(f"ERROR: {name} not found"); sys.exit(1)
+              body = m.group(2)
+              if body.count('.locals 0') != 1 or body.count('iget-object p0, p0,') != 1 or body.count('return-object p0') != 1:
+                  print(f"ERROR: unexpected body in {name}:\n{body}"); sys.exit(1)
+              body = body.replace('.locals 0', '.locals 1')
+              body = body.replace('iget-object p0, p0,', 'iget-object v0, p0,')
+              body = body.replace('invoke-static {p0}, Lapp/revanced/extension/gamehub/network/SteamCdnHelper;',
+                                  'invoke-static {v0}, Lapp/revanced/extension/gamehub/network/SteamCdnHelper;')
+              body = body.replace('move-result-object p0', 'move-result-object v0')
+              body = body.replace('return-object p0',
+                                  '# BH: custom cover (BhCover)\n'
+                                  '    invoke-static {p0, v0}, Lapp/revanced/extension/gamehub/BhCover;->cover(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;\n\n'
+                                  '    move-result-object p0\n\n'
+                                  '    return-object p0')
+              if 'p0' in body.replace('iget-object v0, p0,', '').replace('{p0, v0}', '').replace('move-result-object p0', '').replace('return-object p0', ''):
+                  print(f"ERROR: p0 still used in {name}:\n{body}"); sys.exit(1)
+              src = src[:m.start(2)] + body + src[m.end(2):]
+              print(f"OK: {name} -> BhCover.cover")
+          open(path, 'w', encoding='utf-8').write(src)
+          PYEOF
+
       - name: Apply network speed-up patch
         run: |
           python3 << 'PYEOF'
