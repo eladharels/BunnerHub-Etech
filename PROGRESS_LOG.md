@@ -4,6 +4,11 @@ Tracks every commit, patch, and change applied to the GameHub 5.3.5 ReVanced APK
 
 ---
 
+### [test] — BioShock splash hang: what has been tried (2026-11-28)
+- Still hangs on the splash screen with: Disable Graphics Enhancement Plugin on, Proton 10 (`wine_proton10.0-arm64x-2`, experimental wow64), Turnip v27.0.0-20261125-r3 (Mesa 26.99.99), 4-core topology, and without `-dx9`. Log stops after DXVK 2.3.1-gplasync "Process set as DPI aware", no `err:` lines, so the game stalls before creating its D3D device.
+- Left for the next session (from Elad's PC with phone access): another DXVK or WineD3D; `err+all,warn+all,+seh`; whether sound plays on the splash.
+- Note: `ENABLE_RESHADE=1` is set by `EnvironmentController.m` unless two Config flags are set; it was still present with the plugin switch on, so the env var alone doesn't tell whether ReShade is off.
+
 ### [docs] — Guide for agents, roadmap brought up to date (2026-11-27)
 - `CLAUDE.md` (loaded automatically by Claude Code; `AGENTS.md` points to it for other agents): what the repo is, where things are, building and getting the APK link, testing locally and the phone's log files, what has been built, open problems, how Elad works, conventions.
 - `docs/ROADMAP.md`: FSR upscaling marked done; new sections for live settings / screenshots / auto backup, performance history, heat control (removed) and AI frame generation (upstream, confirmed working on Elad's phone 2026-11-27); open problems (Prototype 2 freeze, BioShock splash hang, agent access to the phone) and ideas.

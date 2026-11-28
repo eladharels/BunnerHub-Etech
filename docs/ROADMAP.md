@@ -120,7 +120,7 @@ Already in the app from upstream BannerHub: Performance tab → AI Frame Generat
 ## Open problems
 
 1. **Prototype 2 freezes for good** after some play (stays frozen until restarted). Ruled out: our layer (also freezes with the upscaler off), Native Rendering+, frame rate (30 FPS cap), heat control. Left: the FLiNG trainer (infinite health, infinite power), the game, or its Wine/DXVK/driver settings. No Wine log exists yet because Prototype 2's Wine Debug Parameters are empty. Next: `err+all,+seh` in Prototype 2's settings, trainer off, log from a freeze; note whether sound continues and the sidebar opens. Try a newer Turnip driver.
-2. **BioShock (2007) hangs on the splash screen** after DXVK "Process set as DPI aware" (`-dx9`, DXVK 2.3.1 gplasync, turnip). To try: Disable Graphics Enhancement Plugin (ReShade on), another DXVK or WineD3D, another Wine.
+2. **BioShock (2007) hangs on the splash screen** after DXVK "Process set as DPI aware", before the game creates its D3D device (no errors logged). Tried 2026-11-28, still hangs: Disable Graphics Enhancement Plugin on, Proton 10 (and Proton 11 before), Turnip v27 (and v26 before), 4-core topology, without `-dx9` (DX10 path). Next: another DXVK (not 2.3.1-gplasync) or WineD3D; a log with `err+all,warn+all,+seh` to see what it waits on; ask whether sound plays on the splash.
 3. **Agent access to the phone:** planned from Elad's PC (Claude app Remote Control + adb), so logs and logcat can be read directly instead of sent by hand.
 
 ## Ideas, not started
